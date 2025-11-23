@@ -16,14 +16,15 @@ namespace WindowsFormsApp1
         private bool _isRightButtonDown = false;
         private MousePoint _startPoint;
         private List<string> _gestureDirections = new List<string>();
-        private const int MOVEMENT_THRESHOLD = 20; // Minimum pixels to register a movement
+        private const int MOVEMENT_THRESHOLD = 20;
 
-        private bool _isRecording = false;
-        private Dictionary<string, string> _gestureMappings = new Dictionary<string, string>();
-        private BindingSource _bindingSource = new BindingSource();
+        // Data binding
+        private BindingList<GestureMap> _gestureMaps = new BindingList<GestureMap>();
 
+        // Editing state
+        private int _editingRowIndex = -1;
+        private bool _isRecordingGesture = false;
         private bool _isListeningForKey = false;
-        private string _currentKeyBinding = "";
 
         public Form1()
         {
@@ -34,14 +35,50 @@ namespace WindowsFormsApp1
         {
             if (IsDesignMode()) return;
 
+            ApplyModernTheme();
+
             _mouseHook = new MouseHook();
             _mouseHook.RightButtonDown += OnRightButtonDown;
             _mouseHook.RightButtonUp += OnRightButtonUp;
             _mouseHook.MouseMove += OnMouseMove;
             _mouseHook.Start();
 
-            _bindingSource.DataSource = _gestureMappings.Select(kv => new { Gesture = kv.Key, Key = kv.Value }).ToList();
-            dgvGestures.DataSource = _bindingSource;
+            // Setup Grid
+            dgvGestures.DataSource = _gestureMaps;
+            dgvGestures.CellDoubleClick += DgvGestures_CellDoubleClick;
+        }
+
+        private void ApplyModernTheme()
+        {
+            // Form
+            this.BackColor = Color.FromArgb(30, 30, 30);
+            this.ForeColor = Color.White;
+            this.Font = new Font("Segoe UI", 10);
+
+            // DataGridView
+            dgvGestures.BackgroundColor = Color.FromArgb(30, 30, 30);
+            dgvGestures.BorderStyle = BorderStyle.None;
+            dgvGestures.GridColor = Color.FromArgb(50, 50, 50);
+            dgvGestures.EnableHeadersVisualStyles = false;
+            dgvGestures.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
+            dgvGestures.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(0, 122, 204);
+            dgvGestures.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
+            dgvGestures.ColumnHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(0, 122, 204);
+            dgvGestures.RowHeadersDefaultCellStyle.BackColor = Color.FromArgb(30, 30, 30);
+            dgvGestures.DefaultCellStyle.BackColor = Color.FromArgb(45, 45, 48);
+            dgvGestures.DefaultCellStyle.ForeColor = Color.White;
+            dgvGestures.DefaultCellStyle.SelectionBackColor = Color.FromArgb(62, 62, 66);
+            dgvGestures.DefaultCellStyle.SelectionForeColor = Color.White;
+
+            // Label
+            lblGesture.ForeColor = Color.White;
+        }
+
+        private void StyleTextBox(TextBox txt)
+        {
+            txt.BackColor = Color.FromArgb(45, 45, 48);
+            txt.ForeColor = Color.White;
+            txt.BorderStyle = BorderStyle.FixedSingle;
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -55,27 +92,56 @@ namespace WindowsFormsApp1
             return LicenseManager.UsageMode == LicenseUsageMode.Designtime;
         }
 
+        private void DgvGestures_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0) return;
+
+            _editingRowIndex = e.RowIndex;
+
+            // Ensure row exists in the underlying list (handle "new row" placeholder)
+            if (_editingRowIndex >= _gestureMaps.Count)
+            {
+                _gestureMaps.Add(new GestureMap());
+            }
+
+            // Column 0: Gesture, Column 1: KeyBinding (Assuming auto-generation order, but better to check names if possible. 
+            // For simplicity with auto-gen, we assume properties order: Gesture, KeyBinding)
+            
+            if (e.ColumnIndex == 0) // Gesture
+            {
+                _isRecordingGesture = true;
+                UpdateGestureLabel($"Recording Gesture for Row {e.RowIndex + 1}...");
+                dgvGestures.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.DarkRed;
+            }
+            else if (e.ColumnIndex == 1) // KeyBinding
+            {
+                _isListeningForKey = true;
+                UpdateGestureLabel($"Press Key for Row {e.RowIndex + 1}...");
+                dgvGestures.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.DarkBlue;
+            }
+        }
+
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (_isListeningForKey)
+            if (_isListeningForKey && _editingRowIndex >= 0 && _editingRowIndex < _gestureMaps.Count)
             {
-                // Check if the pressed key is just a modifier
                 Keys keyCode = keyData & Keys.KeyCode;
                 bool isModifier = keyCode == Keys.ControlKey || keyCode == Keys.ShiftKey || keyCode == Keys.Menu;
 
-                // Update display
-                string keyDisplay = new KeysConverter().ConvertToString(keyData);
-                btnKeyBinding.Text = keyDisplay;
-
-                // Only finish if it's NOT just a modifier key
                 if (!isModifier)
                 {
-                    // Convert to SendKeys format
-                    _currentKeyBinding = ConvertToSendKeysFormat(keyData);
+                    string sendKeysFormat = ConvertToSendKeysFormat(keyData);
+                    _gestureMaps[_editingRowIndex].KeyBinding = sendKeysFormat;
+                    
+                    // Reset style
+                    dgvGestures.Rows[_editingRowIndex].Cells[1].Style.BackColor = dgvGestures.DefaultCellStyle.BackColor;
+                    
                     _isListeningForKey = false;
+                    _editingRowIndex = -1;
+                    UpdateGestureLabel("Key Assigned.");
+                    dgvGestures.Refresh();
                 }
-
-                return true; // Consume the key event
+                return true;
             }
             return base.ProcessCmdKey(ref msg, keyData);
         }
@@ -89,7 +155,6 @@ namespace WindowsFormsApp1
 
             Keys keyCode = keyData & Keys.KeyCode;
 
-            // Handle special keys
             switch (keyCode)
             {
                 case Keys.Enter: return sb.Append("{ENTER}").ToString();
@@ -97,21 +162,13 @@ namespace WindowsFormsApp1
                 case Keys.Back: return sb.Append("{BACKSPACE}").ToString();
                 case Keys.Delete: return sb.Append("{DELETE}").ToString();
                 case Keys.Escape: return sb.Append("{ESC}").ToString();
-                // Add more special keys as needed
                 default:
                     if (keyCode >= Keys.A && keyCode <= Keys.Z)
-                    {
                         return sb.Append(keyCode.ToString().ToLower()).ToString();
-                    }
                     else if (keyCode >= Keys.D0 && keyCode <= Keys.D9)
-                    {
                         return sb.Append(keyCode.ToString().Replace("D", "")).ToString();
-                    }
                     else
-                    {
-                        // Fallback for other keys, might need more robust handling
                         return sb.Append("{" + keyCode.ToString().ToUpper() + "}").ToString();
-                    }
             }
         }
 
@@ -121,8 +178,6 @@ namespace WindowsFormsApp1
             _startPoint = e.Point;
             _gestureDirections.Clear();
             UpdateGestureLabel("Listening...");
-
-            // Suppress the default right-click menu
             e.Handled = true;
         }
 
@@ -130,28 +185,26 @@ namespace WindowsFormsApp1
         {
             _isRightButtonDown = false;
             string finalGesture = string.Join("", _gestureDirections);
-
-            // Suppress the default right-click menu
             e.Handled = true;
 
-            if (_isRecording)
+            if (_isRecordingGesture && _editingRowIndex >= 0 && _editingRowIndex < _gestureMaps.Count)
             {
                 if (!string.IsNullOrEmpty(finalGesture))
                 {
-                    txtRecordedGesture.Invoke(new Action(() => txtRecordedGesture.Text = finalGesture));
-                    _isRecording = false;
-                    btnRecord.Invoke(new Action(() => btnRecord.Text = "Record"));
+                    _gestureMaps[_editingRowIndex].Gesture = finalGesture;
                     UpdateGestureLabel($"Recorded: {finalGesture}");
                 }
                 else
                 {
-                    UpdateGestureLabel("Recording Cancelled (No Gesture)");
-                    _isRecording = false;
-                    btnRecord.Invoke(new Action(() => btnRecord.Text = "Record"));
-                    
-                    // If no gesture during recording, maybe we should let the click through?
-                    // For now, let's just cancel recording.
+                    UpdateGestureLabel("Recording Cancelled");
                 }
+                
+                // Reset style
+                dgvGestures.Rows[_editingRowIndex].Cells[0].Style.BackColor = dgvGestures.DefaultCellStyle.BackColor;
+
+                _isRecordingGesture = false;
+                _editingRowIndex = -1;
+                dgvGestures.Refresh();
             }
             else
             {
@@ -163,8 +216,6 @@ namespace WindowsFormsApp1
                 else
                 {
                     UpdateGestureLabel("Right Click");
-                    // No gesture detected, so it was a normal right click.
-                    // We suppressed it, so now we must manually send it.
                     SendRightClick(e.Point);
                 }
             }
@@ -172,14 +223,9 @@ namespace WindowsFormsApp1
 
         private void SendRightClick(MousePoint p)
         {
-            // Temporarily stop the hook to avoid infinite loop
             _mouseHook.Stop();
-
-            // Send Right Down and Right Up
             MouseHook.mouse_event(MouseHook.MOUSEEVENTF_RIGHTDOWN, p.X, p.Y, 0, 0);
             MouseHook.mouse_event(MouseHook.MOUSEEVENTF_RIGHTUP, p.X, p.Y, 0, 0);
-
-            // Restart the hook
             _mouseHook.Start();
         }
 
@@ -194,13 +240,9 @@ namespace WindowsFormsApp1
             {
                 string direction = "";
                 if (Math.Abs(dx) > Math.Abs(dy))
-                {
                     direction = dx > 0 ? "R" : "L";
-                }
                 else
-                {
                     direction = dy > 0 ? "D" : "U";
-                }
 
                 if (_gestureDirections.Count == 0 || _gestureDirections.Last() != direction)
                 {
@@ -214,23 +256,19 @@ namespace WindowsFormsApp1
         private void UpdateGestureLabel(string text)
         {
             if (lblGesture.InvokeRequired)
-            {
                 lblGesture.Invoke(new Action(() => lblGesture.Text = text));
-            }
             else
-            {
                 lblGesture.Text = text;
-            }
         }
 
         private void ExecuteGesture(string gesture)
         {
-            if (_gestureMappings.ContainsKey(gesture))
+            var map = _gestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+            if (map != null && !string.IsNullOrEmpty(map.KeyBinding))
             {
-                string key = _gestureMappings[gesture];
                 try
                 {
-                    SendKeys.Send(key);
+                    SendKeys.Send(map.KeyBinding);
                 }
                 catch (Exception ex)
                 {
@@ -238,53 +276,11 @@ namespace WindowsFormsApp1
                 }
             }
         }
+    }
 
-        private void btnRecord_Click(object sender, EventArgs e)
-        {
-            _isRecording = true;
-            btnRecord.Text = "Recording...";
-            txtRecordedGesture.Text = "";
-            UpdateGestureLabel("Perform a gesture to record...");
-        }
-
-        private void btnKeyBinding_Click(object sender, EventArgs e)
-        {
-            _isListeningForKey = true;
-            btnKeyBinding.Text = "Press Key...";
-            _currentKeyBinding = "";
-        }
-
-        private void btnAdd_Click(object sender, EventArgs e)
-        {
-            string gesture = txtRecordedGesture.Text;
-            string key = _currentKeyBinding;
-
-            if (string.IsNullOrEmpty(gesture) || string.IsNullOrEmpty(key))
-            {
-                MessageBox.Show("Please record a gesture and assign a key binding.");
-                return;
-            }
-
-            if (_gestureMappings.ContainsKey(gesture))
-            {
-                _gestureMappings[gesture] = key;
-            }
-            else
-            {
-                _gestureMappings.Add(gesture, key);
-            }
-
-            RefreshGrid();
-            txtRecordedGesture.Text = "";
-            btnKeyBinding.Text = "None";
-            _currentKeyBinding = "";
-            MessageBox.Show("Mapping added!");
-        }
-
-        private void RefreshGrid()
-        {
-            _bindingSource.DataSource = _gestureMappings.Select(kv => new { Gesture = kv.Key, Key = kv.Value }).ToList();
-            dgvGestures.DataSource = _bindingSource;
-        }
+    public class GestureMap
+    {
+        public string Gesture { get; set; }
+        public string KeyBinding { get; set; }
     }
 }
