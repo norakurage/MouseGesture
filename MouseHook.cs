@@ -7,11 +7,13 @@ namespace WindowsFormsApp1
     public class MouseHookEventArgs : EventArgs
     {
         public MousePoint Point { get; }
+        public int MouseData { get; }
         public bool Handled { get; set; }
 
-        public MouseHookEventArgs(MousePoint point)
+        public MouseHookEventArgs(MousePoint point, int mouseData = 0)
         {
             Point = point;
+            MouseData = mouseData;
             Handled = false;
         }
     }
@@ -23,7 +25,12 @@ namespace WindowsFormsApp1
         public event MouseEventHandler LeftButtonUp;
         public event MouseEventHandler RightButtonDown;
         public event MouseEventHandler RightButtonUp;
+        public event MouseEventHandler MiddleButtonDown;
+        public event MouseEventHandler MiddleButtonUp;
+        public event MouseEventHandler XButtonDown;
+        public event MouseEventHandler XButtonUp;
         public event MouseEventHandler MouseMove;
+        public event MouseEventHandler MouseWheel;
 
         private LowLevelMouseProc _proc;
         private IntPtr _hookID = IntPtr.Zero;
@@ -55,13 +62,15 @@ namespace WindowsFormsApp1
 
         private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
 
+        public bool Paused { get; set; }
+
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
-            if (nCode >= 0)
+            if (nCode >= 0 && !Paused)
             {
                 MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
                 MousePoint p = new MousePoint(hookStruct.pt.x, hookStruct.pt.y);
-                MouseHookEventArgs e = new MouseHookEventArgs(p);
+                MouseHookEventArgs e = new MouseHookEventArgs(p, (int)hookStruct.mouseData);
 
                 if (MouseMessages.WM_LBUTTONDOWN == (MouseMessages)wParam)
                     LeftButtonDown?.Invoke(this, e);
@@ -71,8 +80,18 @@ namespace WindowsFormsApp1
                     RightButtonDown?.Invoke(this, e);
                 if (MouseMessages.WM_RBUTTONUP == (MouseMessages)wParam)
                     RightButtonUp?.Invoke(this, e);
+                if (MouseMessages.WM_MBUTTONDOWN == (MouseMessages)wParam)
+                    MiddleButtonDown?.Invoke(this, e);
+                if (MouseMessages.WM_MBUTTONUP == (MouseMessages)wParam)
+                    MiddleButtonUp?.Invoke(this, e);
+                if (MouseMessages.WM_XBUTTONDOWN == (MouseMessages)wParam)
+                    XButtonDown?.Invoke(this, e);
+                if (MouseMessages.WM_XBUTTONUP == (MouseMessages)wParam)
+                    XButtonUp?.Invoke(this, e);
                 if (MouseMessages.WM_MOUSEMOVE == (MouseMessages)wParam)
                     MouseMove?.Invoke(this, e);
+                if (MouseMessages.WM_MOUSEWHEEL == (MouseMessages)wParam)
+                    MouseWheel?.Invoke(this, e);
 
                 if (e.Handled)
                 {
@@ -98,7 +117,11 @@ namespace WindowsFormsApp1
             WM_MOUSEMOVE = 0x0200,
             WM_MOUSEWHEEL = 0x020A,
             WM_RBUTTONDOWN = 0x0204,
-            WM_RBUTTONUP = 0x0205
+            WM_RBUTTONUP = 0x0205,
+            WM_MBUTTONDOWN = 0x0207,
+            WM_MBUTTONUP = 0x0208,
+            WM_XBUTTONDOWN = 0x020B,
+            WM_XBUTTONUP = 0x020C
         }
 
         [StructLayout(LayoutKind.Sequential)]

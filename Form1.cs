@@ -7,6 +7,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.IO;
+using System.Xml.Serialization;
 
 namespace WindowsFormsApp1
 {
@@ -17,6 +19,8 @@ namespace WindowsFormsApp1
         private MousePoint _startPoint;
         private List<string> _gestureDirections = new List<string>();
         private const int MOVEMENT_THRESHOLD = 20;
+        private const string SETTINGS_FILE = "gestures.xml";
+        private const int MAX_GESTURE_STEPS = 8;
 
         // Data binding
         private BindingList<GestureMap> _gestureMaps = new BindingList<GestureMap>();
@@ -44,11 +48,16 @@ namespace WindowsFormsApp1
 
             ApplyModernTheme();
             InitializeAddButton();
+            LoadGestures();
 
             _mouseHook = new MouseHook();
             _mouseHook.RightButtonDown += OnRightButtonDown;
             _mouseHook.RightButtonUp += OnRightButtonUp;
+            _mouseHook.LeftButtonDown += OnLeftButtonDown;
+            _mouseHook.MiddleButtonDown += OnMiddleButtonDown;
+            _mouseHook.XButtonDown += OnXButtonDown;
             _mouseHook.MouseMove += OnMouseMove;
+            _mouseHook.MouseWheel += OnMouseWheel;
             _mouseHook.Start();
 
             // Setup Grid
@@ -76,6 +85,46 @@ namespace WindowsFormsApp1
             dgvGestures.MouseDown += EndEditOnMouseDown;
         }
 
+        private void LoadGestures()
+        {
+            try
+            {
+                if (File.Exists(SETTINGS_FILE))
+                {
+                    XmlSerializer serializer = new XmlSerializer(typeof(List<GestureMap>));
+                    using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Open))
+                    {
+                        var loadedGestures = (List<GestureMap>)serializer.Deserialize(fs);
+                        _gestureMaps.Clear();
+                        foreach (var gesture in loadedGestures)
+                        {
+                            _gestureMaps.Add(gesture);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"設定の読み込みに失敗しました: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void SaveGestures()
+        {
+            try
+            {
+                XmlSerializer serializer = new XmlSerializer(typeof(List<GestureMap>));
+                using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Create))
+                {
+                    serializer.Serialize(fs, _gestureMaps.ToList());
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"設定の保存に失敗しました: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
         private void EndEditOnMouseDown(object sender, MouseEventArgs e)
         {
             if (dgvGestures.IsCurrentCellInEditMode)
@@ -99,10 +148,7 @@ namespace WindowsFormsApp1
             _btnAddGesture = new Button();
             _btnAddGesture.Text = "追加";
             _btnAddGesture.Size = new Size(100, 35);
-            _btnAddGesture.Location = new Point(dgvGestures.Right - 100, dgvGestures.Bottom + 10); // Position below grid, aligned right (will be adjusted after grid resize in Load if needed, but here grid size might be original. Let's set it relative to form or adjust in Load)
-            // Actually, we can just set it in Load or here if we assume standard size. 
-            // Better to set it relative to the grid *after* we resize the grid.
-            // Let's just create it here and set properties, and position it in Load or after resize.
+            _btnAddGesture.Location = new Point(dgvGestures.Right - 100, dgvGestures.Bottom + 10); 
             
             _btnAddGesture.FlatStyle = FlatStyle.Flat;
             _btnAddGesture.FlatAppearance.BorderSize = 0;
@@ -125,11 +171,6 @@ namespace WindowsFormsApp1
                 int lastRowIndex = dgvGestures.Rows.Count - 1;
                 dgvGestures.FirstDisplayedScrollingRowIndex = lastRowIndex;
             }
-        }
-
-        private void UpdateAddButtonLocation()
-        {
-            // Removed dynamic positioning logic
         }
 
         private void ApplyModernTheme()
@@ -158,11 +199,6 @@ namespace WindowsFormsApp1
             // Label
             lblGesture.ForeColor = Color.White;
             
-            // Adjust button position after theme application if needed, 
-            // but we'll do it in Load or InitializeAddButton relative to updated grid size.
-            // Since InitializeAddButton is called after ApplyModernTheme in Load (in previous code), 
-            // but I moved InitializeAddButton call in Load? No, it's there.
-            // Let's ensure the button is positioned correctly.
             if (_btnAddGesture != null)
             {
                  _btnAddGesture.Location = new Point(dgvGestures.Right - _btnAddGesture.Width, dgvGestures.Bottom + 10);
@@ -178,6 +214,7 @@ namespace WindowsFormsApp1
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            SaveGestures();
             _mouseHook?.Stop();
             base.OnFormClosing(e);
         }
@@ -191,11 +228,9 @@ namespace WindowsFormsApp1
         {
             if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
             {
-                // Check if it's the Name column (by Name property or HeaderText)
                 var col = dgvGestures.Columns[e.ColumnIndex];
                 if (col.Name == "Name" || col.HeaderText == "名前")
                 {
-                    // Start editing immediately on single click
                     dgvGestures.BeginEdit(true);
                 }
             }
@@ -207,15 +242,11 @@ namespace WindowsFormsApp1
 
             _editingRowIndex = e.RowIndex;
 
-            // Ensure row exists in the underlying list (handle "new row" placeholder)
             if (_editingRowIndex >= _gestureMaps.Count)
             {
                 _gestureMaps.Add(new GestureMap());
             }
 
-            // Column 0: Gesture, Column 1: KeyBinding (Assuming auto-generation order, but better to check names if possible. 
-            // For simplicity with auto-gen, we assume properties order: Gesture, KeyBinding)
-            
             string headerText = dgvGestures.Columns[e.ColumnIndex].HeaderText;
 
             if (headerText == "ジェスチャー") // Gesture
@@ -244,8 +275,6 @@ namespace WindowsFormsApp1
                     string sendKeysFormat = ConvertToSendKeysFormat(keyData);
                     _gestureMaps[_editingRowIndex].KeyBinding = sendKeysFormat;
                     
-                    // Reset style (Find column by header text or assume index 2 if Name is added first)
-                    // Better to find column index dynamically or just iterate
                     foreach (DataGridViewColumn col in dgvGestures.Columns)
                     {
                         if (col.HeaderText == "キー割り当て")
@@ -296,9 +325,7 @@ namespace WindowsFormsApp1
             _isRightButtonDown = true;
             _startPoint = e.Point;
             _gestureDirections.Clear();
-            UpdateGestureLabel("待機中...");
             
-            // Initial feedback
             UpdateRealTimeFeedback("", new Point(e.Point.X, e.Point.Y));
             
             e.Handled = true;
@@ -324,7 +351,6 @@ namespace WindowsFormsApp1
                     UpdateGestureLabel("記録キャンセル");
                 }
                 
-                // Reset style
                 foreach (DataGridViewColumn col in dgvGestures.Columns)
                 {
                     if (col.HeaderText == "ジェスチャー")
@@ -355,10 +381,10 @@ namespace WindowsFormsApp1
 
         private void SendRightClick(MousePoint p)
         {
-            _mouseHook.Stop();
+            _mouseHook.Paused = true;
             MouseHook.mouse_event(MouseHook.MOUSEEVENTF_RIGHTDOWN, p.X, p.Y, 0, 0);
             MouseHook.mouse_event(MouseHook.MOUSEEVENTF_RIGHTUP, p.X, p.Y, 0, 0);
-            _mouseHook.Start();
+            _mouseHook.Paused = false;
         }
 
         private void OnMouseMove(object sender, MouseHookEventArgs e)
@@ -376,21 +402,72 @@ namespace WindowsFormsApp1
                 else
                     direction = dy > 0 ? "↓" : "↑";
 
-                if (_gestureDirections.Count == 0 || _gestureDirections.Last() != direction)
+                if (_gestureDirections.Count < MAX_GESTURE_STEPS && (_gestureDirections.Count == 0 || _gestureDirections.Last() != direction))
                 {
                     _gestureDirections.Add(direction);
-                    string currentGesture = string.Join("", _gestureDirections);
-                    UpdateGestureLabel(string.Join(" -> ", _gestureDirections)); // Keep label for debug/status
-                    UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
+                    UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
                     _startPoint = e.Point;
                 }
             }
-            else
+            
+            string currentGesture = string.Join("", _gestureDirections);
+            UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
+        }
+
+        private void OnMouseWheel(object sender, MouseHookEventArgs e)
+        {
+            if (!_isRightButtonDown) return;
+
+            if (_gestureDirections.Count >= MAX_GESTURE_STEPS) return;
+
+            short delta = (short)((e.MouseData >> 16) & 0xFFFF);
+            if (delta == 0) return;
+
+            string direction = delta > 0 ? "⇑" : "⇓";
+
+            if (_gestureDirections.Count == 0 || _gestureDirections.Last() != direction)
             {
-                // Update position of feedback even if no new gesture added
-                 string currentGesture = string.Join("", _gestureDirections);
-                 UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
+                _gestureDirections.Add(direction);
+                string currentGesture = string.Join("", _gestureDirections);
+                UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
+                UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
             }
+            
+            e.Handled = true;
+        }
+
+        private void OnLeftButtonDown(object sender, MouseHookEventArgs e)
+        {
+            if (!_isRightButtonDown) return;
+            AddClickGesture("Left", e);
+        }
+
+        private void OnMiddleButtonDown(object sender, MouseHookEventArgs e)
+        {
+            if (!_isRightButtonDown) return;
+            AddClickGesture("Mid", e);
+        }
+
+        private void OnXButtonDown(object sender, MouseHookEventArgs e)
+        {
+            if (!_isRightButtonDown) return;
+            
+            int xButton = (e.MouseData >> 16) & 0xFFFF;
+            string direction = xButton == 1 ? "X1" : "X2";
+            AddClickGesture(direction, e);
+        }
+
+        private void AddClickGesture(string direction, MouseHookEventArgs e)
+        {
+            if (_gestureDirections.Count >= MAX_GESTURE_STEPS) return;
+
+            _gestureDirections.Add(direction);
+            
+            string currentGesture = string.Join("", _gestureDirections);
+            UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
+            UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
+            
+            e.Handled = true;
         }
 
         private void UpdateRealTimeFeedback(string gesture, Point location)
@@ -427,9 +504,6 @@ namespace WindowsFormsApp1
 
             if (!_feedbackForm.Visible)
             {
-                // Only show if there is something to show or we are dragging
-                // If gesture is empty, maybe just show a small dot or nothing?
-                // User said "realtime", implies seeing the trail.
                 if (!string.IsNullOrEmpty(displayText))
                     _feedbackForm.Show();
             }
@@ -469,8 +543,6 @@ namespace WindowsFormsApp1
                 }
             }
         }
-
-
     }
 
     public class GestureMap
