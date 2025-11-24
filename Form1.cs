@@ -26,6 +26,13 @@ namespace WindowsFormsApp1
         private bool _isRecordingGesture = false;
         private bool _isListeningForKey = false;
 
+        // UI Controls
+        private Button _btnAddGesture;
+        
+        // Real-time feedback
+        private Form _feedbackForm;
+        private Label _feedbackLabel;
+
         public Form1()
         {
             InitializeComponent();
@@ -36,6 +43,7 @@ namespace WindowsFormsApp1
             if (IsDesignMode()) return;
 
             ApplyModernTheme();
+            InitializeAddButton();
 
             _mouseHook = new MouseHook();
             _mouseHook.RightButtonDown += OnRightButtonDown;
@@ -44,8 +52,84 @@ namespace WindowsFormsApp1
             _mouseHook.Start();
 
             // Setup Grid
+            dgvGestures.AllowUserToAddRows = false;
             dgvGestures.DataSource = _gestureMaps;
             dgvGestures.CellDoubleClick += DgvGestures_CellDoubleClick;
+            dgvGestures.CellClick += DgvGestures_CellClick;
+            dgvGestures.EditingControlShowing += DgvGestures_EditingControlShowing;
+
+            // Configure Columns
+            // Ensure columns are generated
+            if (dgvGestures.Columns.Count > 0)
+            {
+                if (dgvGestures.Columns["Name"] != null) dgvGestures.Columns["Name"].ReadOnly = false;
+                if (dgvGestures.Columns["Gesture"] != null) dgvGestures.Columns["Gesture"].ReadOnly = true;
+                if (dgvGestures.Columns["KeyBinding"] != null) dgvGestures.Columns["KeyBinding"].ReadOnly = true;
+            }
+
+            // Resize grid to make room for the button
+            dgvGestures.Height -= 50;
+
+            // Handle clicks outside grid to commit edit
+            this.MouseDown += EndEditOnMouseDown;
+            lblGesture.MouseDown += EndEditOnMouseDown;
+            dgvGestures.MouseDown += EndEditOnMouseDown;
+        }
+
+        private void EndEditOnMouseDown(object sender, MouseEventArgs e)
+        {
+            if (dgvGestures.IsCurrentCellInEditMode)
+            {
+                dgvGestures.EndEdit();
+            }
+        }
+
+        private void DgvGestures_EditingControlShowing(object sender, DataGridViewEditingControlShowingEventArgs e)
+        {
+            if (e.Control is TextBox tb)
+            {
+                tb.BackColor = Color.FromArgb(45, 45, 48);
+                tb.ForeColor = Color.White;
+                tb.BorderStyle = BorderStyle.FixedSingle;
+            }
+        }
+
+        private void InitializeAddButton()
+        {
+            _btnAddGesture = new Button();
+            _btnAddGesture.Text = "追加";
+            _btnAddGesture.Size = new Size(100, 35);
+            _btnAddGesture.Location = new Point(dgvGestures.Right - 100, dgvGestures.Bottom + 10); // Position below grid, aligned right (will be adjusted after grid resize in Load if needed, but here grid size might be original. Let's set it relative to form or adjust in Load)
+            // Actually, we can just set it in Load or here if we assume standard size. 
+            // Better to set it relative to the grid *after* we resize the grid.
+            // Let's just create it here and set properties, and position it in Load or after resize.
+            
+            _btnAddGesture.FlatStyle = FlatStyle.Flat;
+            _btnAddGesture.FlatAppearance.BorderSize = 0;
+            _btnAddGesture.BackColor = Color.FromArgb(0, 122, 204);
+            _btnAddGesture.ForeColor = Color.White;
+            _btnAddGesture.Font = new Font("Meiryo UI", 10, FontStyle.Bold); // Use Japanese font
+            _btnAddGesture.Cursor = Cursors.Hand;
+            _btnAddGesture.Click += BtnAddGesture_Click;
+            
+            this.Controls.Add(_btnAddGesture);
+            _btnAddGesture.BringToFront();
+        }
+
+        private void BtnAddGesture_Click(object sender, EventArgs e)
+        {
+            _gestureMaps.Add(new GestureMap());
+            
+            if (dgvGestures.Rows.Count > 0)
+            {
+                int lastRowIndex = dgvGestures.Rows.Count - 1;
+                dgvGestures.FirstDisplayedScrollingRowIndex = lastRowIndex;
+            }
+        }
+
+        private void UpdateAddButtonLocation()
+        {
+            // Removed dynamic positioning logic
         }
 
         private void ApplyModernTheme()
@@ -53,11 +137,12 @@ namespace WindowsFormsApp1
             // Form
             this.BackColor = Color.FromArgb(30, 30, 30);
             this.ForeColor = Color.White;
-            this.Font = new Font("Segoe UI", 10);
+            this.Font = new Font("Meiryo UI", 10); // Japanese Font
+            this.Text = "マウスジェスチャーアプリ";
 
             // DataGridView
             dgvGestures.BackgroundColor = Color.FromArgb(30, 30, 30);
-            dgvGestures.BorderStyle = BorderStyle.None;
+            dgvGestures.BorderStyle = BorderStyle.FixedSingle; // Frame the table
             dgvGestures.GridColor = Color.FromArgb(50, 50, 50);
             dgvGestures.EnableHeadersVisualStyles = false;
             dgvGestures.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
@@ -72,6 +157,16 @@ namespace WindowsFormsApp1
 
             // Label
             lblGesture.ForeColor = Color.White;
+            
+            // Adjust button position after theme application if needed, 
+            // but we'll do it in Load or InitializeAddButton relative to updated grid size.
+            // Since InitializeAddButton is called after ApplyModernTheme in Load (in previous code), 
+            // but I moved InitializeAddButton call in Load? No, it's there.
+            // Let's ensure the button is positioned correctly.
+            if (_btnAddGesture != null)
+            {
+                 _btnAddGesture.Location = new Point(dgvGestures.Right - _btnAddGesture.Width, dgvGestures.Bottom + 10);
+            }
         }
 
         private void StyleTextBox(TextBox txt)
@@ -92,6 +187,20 @@ namespace WindowsFormsApp1
             return LicenseManager.UsageMode == LicenseUsageMode.Designtime;
         }
 
+        private void DgvGestures_CellClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
+            {
+                // Check if it's the Name column (by Name property or HeaderText)
+                var col = dgvGestures.Columns[e.ColumnIndex];
+                if (col.Name == "Name" || col.HeaderText == "名前")
+                {
+                    // Start editing immediately on single click
+                    dgvGestures.BeginEdit(true);
+                }
+            }
+        }
+
         private void DgvGestures_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex < 0) return;
@@ -107,16 +216,18 @@ namespace WindowsFormsApp1
             // Column 0: Gesture, Column 1: KeyBinding (Assuming auto-generation order, but better to check names if possible. 
             // For simplicity with auto-gen, we assume properties order: Gesture, KeyBinding)
             
-            if (e.ColumnIndex == 0) // Gesture
+            string headerText = dgvGestures.Columns[e.ColumnIndex].HeaderText;
+
+            if (headerText == "ジェスチャー") // Gesture
             {
                 _isRecordingGesture = true;
-                UpdateGestureLabel($"Recording Gesture for Row {e.RowIndex + 1}...");
+                UpdateGestureLabel($"行 {e.RowIndex + 1} のジェスチャーを記録中...");
                 dgvGestures.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.DarkRed;
             }
-            else if (e.ColumnIndex == 1) // KeyBinding
+            else if (headerText == "キー割り当て") // KeyBinding
             {
                 _isListeningForKey = true;
-                UpdateGestureLabel($"Press Key for Row {e.RowIndex + 1}...");
+                UpdateGestureLabel($"行 {e.RowIndex + 1} のキーを押してください...");
                 dgvGestures.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.DarkBlue;
             }
         }
@@ -133,12 +244,20 @@ namespace WindowsFormsApp1
                     string sendKeysFormat = ConvertToSendKeysFormat(keyData);
                     _gestureMaps[_editingRowIndex].KeyBinding = sendKeysFormat;
                     
-                    // Reset style
-                    dgvGestures.Rows[_editingRowIndex].Cells[1].Style.BackColor = dgvGestures.DefaultCellStyle.BackColor;
+                    // Reset style (Find column by header text or assume index 2 if Name is added first)
+                    // Better to find column index dynamically or just iterate
+                    foreach (DataGridViewColumn col in dgvGestures.Columns)
+                    {
+                        if (col.HeaderText == "キー割り当て")
+                        {
+                            dgvGestures.Rows[_editingRowIndex].Cells[col.Index].Style.BackColor = dgvGestures.DefaultCellStyle.BackColor;
+                            break;
+                        }
+                    }
                     
                     _isListeningForKey = false;
                     _editingRowIndex = -1;
-                    UpdateGestureLabel("Key Assigned.");
+                    UpdateGestureLabel("キーを割り当てました。");
                     dgvGestures.Refresh();
                 }
                 return true;
@@ -177,13 +296,19 @@ namespace WindowsFormsApp1
             _isRightButtonDown = true;
             _startPoint = e.Point;
             _gestureDirections.Clear();
-            UpdateGestureLabel("Listening...");
+            UpdateGestureLabel("待機中...");
+            
+            // Initial feedback
+            UpdateRealTimeFeedback("", new Point(e.Point.X, e.Point.Y));
+            
             e.Handled = true;
         }
 
         private void OnRightButtonUp(object sender, MouseHookEventArgs e)
         {
             _isRightButtonDown = false;
+            HideRealTimeFeedback();
+            
             string finalGesture = string.Join("", _gestureDirections);
             e.Handled = true;
 
@@ -192,15 +317,22 @@ namespace WindowsFormsApp1
                 if (!string.IsNullOrEmpty(finalGesture))
                 {
                     _gestureMaps[_editingRowIndex].Gesture = finalGesture;
-                    UpdateGestureLabel($"Recorded: {finalGesture}");
+                    UpdateGestureLabel($"記録完了: {finalGesture}");
                 }
                 else
                 {
-                    UpdateGestureLabel("Recording Cancelled");
+                    UpdateGestureLabel("記録キャンセル");
                 }
                 
                 // Reset style
-                dgvGestures.Rows[_editingRowIndex].Cells[0].Style.BackColor = dgvGestures.DefaultCellStyle.BackColor;
+                foreach (DataGridViewColumn col in dgvGestures.Columns)
+                {
+                    if (col.HeaderText == "ジェスチャー")
+                    {
+                        dgvGestures.Rows[_editingRowIndex].Cells[col.Index].Style.BackColor = dgvGestures.DefaultCellStyle.BackColor;
+                        break;
+                    }
+                }
 
                 _isRecordingGesture = false;
                 _editingRowIndex = -1;
@@ -210,12 +342,12 @@ namespace WindowsFormsApp1
             {
                 if (!string.IsNullOrEmpty(finalGesture))
                 {
-                    UpdateGestureLabel($"Gesture: {finalGesture}");
+                    UpdateGestureLabel($"ジェスチャー: {finalGesture}");
                     ExecuteGesture(finalGesture);
                 }
                 else
                 {
-                    UpdateGestureLabel("Right Click");
+                    UpdateGestureLabel("右クリック");
                     SendRightClick(e.Point);
                 }
             }
@@ -240,16 +372,74 @@ namespace WindowsFormsApp1
             {
                 string direction = "";
                 if (Math.Abs(dx) > Math.Abs(dy))
-                    direction = dx > 0 ? "R" : "L";
+                    direction = dx > 0 ? "→" : "←";
                 else
-                    direction = dy > 0 ? "D" : "U";
+                    direction = dy > 0 ? "↓" : "↑";
 
                 if (_gestureDirections.Count == 0 || _gestureDirections.Last() != direction)
                 {
                     _gestureDirections.Add(direction);
-                    UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
+                    string currentGesture = string.Join("", _gestureDirections);
+                    UpdateGestureLabel(string.Join(" -> ", _gestureDirections)); // Keep label for debug/status
+                    UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
                     _startPoint = e.Point;
                 }
+            }
+            else
+            {
+                // Update position of feedback even if no new gesture added
+                 string currentGesture = string.Join("", _gestureDirections);
+                 UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
+            }
+        }
+
+        private void UpdateRealTimeFeedback(string gesture, Point location)
+        {
+            if (_feedbackForm == null || _feedbackForm.IsDisposed)
+            {
+                _feedbackForm = new Form();
+                _feedbackForm.FormBorderStyle = FormBorderStyle.None;
+                _feedbackForm.ShowInTaskbar = false;
+                _feedbackForm.StartPosition = FormStartPosition.Manual;
+                _feedbackForm.BackColor = Color.FromArgb(30, 30, 30);
+                _feedbackForm.Opacity = 0.8;
+                _feedbackForm.TopMost = true;
+                
+                _feedbackLabel = new Label();
+                _feedbackLabel.ForeColor = Color.White;
+                _feedbackLabel.Font = new Font("Meiryo UI", 12, FontStyle.Bold);
+                _feedbackLabel.AutoSize = true;
+                _feedbackLabel.Location = new Point(5, 5);
+                
+                _feedbackForm.Controls.Add(_feedbackLabel);
+            }
+
+            string displayText = gesture;
+            var match = _gestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+            if (match != null && !string.IsNullOrEmpty(match.Name))
+            {
+                displayText += " " + match.Name;
+            }
+
+            _feedbackLabel.Text = displayText;
+            _feedbackForm.Size = new Size(_feedbackLabel.PreferredWidth + 10, _feedbackLabel.PreferredHeight + 10);
+            _feedbackForm.Location = new Point(location.X + 20, location.Y + 20);
+
+            if (!_feedbackForm.Visible)
+            {
+                // Only show if there is something to show or we are dragging
+                // If gesture is empty, maybe just show a small dot or nothing?
+                // User said "realtime", implies seeing the trail.
+                if (!string.IsNullOrEmpty(displayText))
+                    _feedbackForm.Show();
+            }
+        }
+
+        private void HideRealTimeFeedback()
+        {
+            if (_feedbackForm != null && !_feedbackForm.IsDisposed)
+            {
+                _feedbackForm.Hide();
             }
         }
 
@@ -264,23 +454,34 @@ namespace WindowsFormsApp1
         private void ExecuteGesture(string gesture)
         {
             var map = _gestureMaps.FirstOrDefault(m => m.Gesture == gesture);
-            if (map != null && !string.IsNullOrEmpty(map.KeyBinding))
+            if (map != null)
             {
-                try
+                if (!string.IsNullOrEmpty(map.KeyBinding))
                 {
-                    SendKeys.Send(map.KeyBinding);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error sending keys: {ex.Message}");
+                    try
+                    {
+                        SendKeys.Send(map.KeyBinding);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error sending keys: {ex.Message}");
+                    }
                 }
             }
         }
+
+
     }
 
     public class GestureMap
     {
+        [DisplayName("名前")]
+        public string Name { get; set; }
+        
+        [DisplayName("ジェスチャー")]
         public string Gesture { get; set; }
+        
+        [DisplayName("キー割り当て")]
         public string KeyBinding { get; set; }
     }
 }
