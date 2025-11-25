@@ -272,8 +272,8 @@ namespace WindowsFormsApp1
 
                 if (!isModifier)
                 {
-                    string sendKeysFormat = ConvertToSendKeysFormat(keyData);
-                    _gestureMaps[_editingRowIndex].KeyBinding = sendKeysFormat;
+                    string readableFormat = GetReadableKeyString(keyData);
+                    _gestureMaps[_editingRowIndex].KeyBinding = readableFormat;
                     
                     foreach (DataGridViewColumn col in dgvGestures.Columns)
                     {
@@ -294,30 +294,75 @@ namespace WindowsFormsApp1
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
-        private string ConvertToSendKeysFormat(Keys keyData)
+        private string GetReadableKeyString(Keys keyData)
         {
-            StringBuilder sb = new StringBuilder();
-            if ((keyData & Keys.Control) == Keys.Control) sb.Append("^");
-            if ((keyData & Keys.Alt) == Keys.Alt) sb.Append("%");
-            if ((keyData & Keys.Shift) == Keys.Shift) sb.Append("+");
+            List<string> parts = new List<string>();
+            if ((keyData & Keys.Control) == Keys.Control) parts.Add("Ctrl");
+            if ((keyData & Keys.Alt) == Keys.Alt) parts.Add("Alt");
+            if ((keyData & Keys.Shift) == Keys.Shift) parts.Add("Shift");
 
             Keys keyCode = keyData & Keys.KeyCode;
-
-            switch (keyCode)
+            if (keyCode != Keys.ControlKey && keyCode != Keys.ShiftKey && keyCode != Keys.Menu && keyCode != Keys.None)
             {
-                case Keys.Enter: return sb.Append("{ENTER}").ToString();
-                case Keys.Tab: return sb.Append("{TAB}").ToString();
-                case Keys.Back: return sb.Append("{BACKSPACE}").ToString();
-                case Keys.Delete: return sb.Append("{DELETE}").ToString();
-                case Keys.Escape: return sb.Append("{ESC}").ToString();
-                default:
-                    if (keyCode >= Keys.A && keyCode <= Keys.Z)
-                        return sb.Append(keyCode.ToString().ToLower()).ToString();
-                    else if (keyCode >= Keys.D0 && keyCode <= Keys.D9)
-                        return sb.Append(keyCode.ToString().Replace("D", "")).ToString();
-                    else
-                        return sb.Append("{" + keyCode.ToString().ToUpper() + "}").ToString();
+                if (keyCode >= Keys.D0 && keyCode <= Keys.D9)
+                {
+                    parts.Add(keyCode.ToString().Replace("D", ""));
+                }
+                else
+                {
+                    parts.Add(keyCode.ToString());
+                }
             }
+            
+            return string.Join("+", parts);
+        }
+
+        private string ConvertReadableToSendKeys(string readable)
+        {
+            if (string.IsNullOrEmpty(readable)) return "";
+            
+            if (!readable.Contains("Ctrl") && !readable.Contains("Alt") && !readable.Contains("Shift") && 
+                (readable.Contains("^") || readable.Contains("%") || readable.Contains("{")))
+            {
+                return readable;
+            }
+
+            string result = "";
+            
+            var parts = readable.Split('+').ToList();
+            bool ctrl = parts.Remove("Ctrl");
+            bool alt = parts.Remove("Alt");
+            bool shift = parts.Remove("Shift");
+            
+            if (ctrl) result += "^";
+            if (alt) result += "%";
+            if (shift) result += "+";
+            
+            if (parts.Count > 0)
+            {
+                string key = parts.Last(); 
+                
+                if (key.Length == 1)
+                {
+                    result += key.ToLower();
+                }
+                else
+                {
+                    switch (key.ToUpper())
+                    {
+                        case "ENTER": result += "{ENTER}"; break;
+                        case "TAB": result += "{TAB}"; break;
+                        case "ESCAPE": result += "{ESC}"; break;
+                        case "ESC": result += "{ESC}"; break;
+                        case "BACK": result += "{BACKSPACE}"; break;
+                        case "BACKSPACE": result += "{BACKSPACE}"; break;
+                        case "DELETE": result += "{DELETE}"; break;
+                        default: result += "{" + key.ToUpper() + "}"; break;
+                    }
+                }
+            }
+            
+            return result;
         }
 
         private void OnRightButtonDown(object sender, MouseHookEventArgs e)
@@ -407,6 +452,24 @@ namespace WindowsFormsApp1
                     _gestureDirections.Add(direction);
                     UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
                     _startPoint = e.Point;
+                }
+                else if (_gestureDirections.Count > 0 && _gestureDirections.Last() == direction)
+                {
+                    _startPoint = e.Point;
+                }
+            }
+            else
+            {
+                if (_gestureDirections.Count > 0)
+                {
+                    string last = _gestureDirections.Last();
+                    if ((last == "→" && dx > 0) ||
+                        (last == "←" && dx < 0) ||
+                        (last == "↓" && dy > 0) ||
+                        (last == "↑" && dy < 0))
+                    {
+                        _startPoint = e.Point;
+                    }
                 }
             }
             
@@ -534,7 +597,8 @@ namespace WindowsFormsApp1
                 {
                     try
                     {
-                        SendKeys.Send(map.KeyBinding);
+                        string sendKeys = ConvertReadableToSendKeys(map.KeyBinding);
+                        SendKeys.Send(sendKeys);
                     }
                     catch (Exception ex)
                     {
