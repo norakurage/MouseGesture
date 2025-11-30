@@ -65,7 +65,23 @@ namespace WindowsFormsApp1
             dgvGestures.DataSource = _gestureMaps;
             dgvGestures.CellDoubleClick += DgvGestures_CellDoubleClick;
             dgvGestures.CellClick += DgvGestures_CellClick;
+            dgvGestures.CellContentClick += DgvGestures_CellContentClick;
             dgvGestures.EditingControlShowing += DgvGestures_EditingControlShowing;
+
+            // Add Delete Column
+            if (dgvGestures.Columns["Delete"] == null)
+            {
+                DataGridViewButtonColumn btn = new DataGridViewButtonColumn();
+                btn.Name = "Delete";
+                btn.HeaderText = "削除";
+                btn.Text = "×";
+                btn.UseColumnTextForButtonValue = true;
+                btn.Width = 50;
+                btn.FlatStyle = FlatStyle.Flat;
+                btn.DefaultCellStyle.BackColor = Color.FromArgb(45, 45, 48);
+                btn.DefaultCellStyle.ForeColor = Color.IndianRed;
+                dgvGestures.Columns.Add(btn);
+            }
 
             // Configure Columns
             // Ensure columns are generated
@@ -156,6 +172,7 @@ namespace WindowsFormsApp1
             _btnAddGesture.ForeColor = Color.White;
             _btnAddGesture.Font = new Font("Meiryo UI", 10, FontStyle.Bold); // Use Japanese font
             _btnAddGesture.Cursor = Cursors.Hand;
+            _btnAddGesture.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             _btnAddGesture.Click += BtnAddGesture_Click;
             
             this.Controls.Add(_btnAddGesture);
@@ -190,6 +207,7 @@ namespace WindowsFormsApp1
             dgvGestures.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(0, 122, 204);
             dgvGestures.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
             dgvGestures.ColumnHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(0, 122, 204);
+            dgvGestures.RowHeadersVisible = false;
             dgvGestures.RowHeadersDefaultCellStyle.BackColor = Color.FromArgb(30, 30, 30);
             dgvGestures.DefaultCellStyle.BackColor = Color.FromArgb(45, 45, 48);
             dgvGestures.DefaultCellStyle.ForeColor = Color.White;
@@ -236,9 +254,32 @@ namespace WindowsFormsApp1
             }
         }
 
+        private void DgvGestures_CellContentClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
+            {
+                if (dgvGestures.Columns[e.ColumnIndex].Name == "Delete")
+                {
+                    if (e.RowIndex < _gestureMaps.Count)
+                    {
+                        // Stop editing if active
+                        if (_editingRowIndex == e.RowIndex)
+                        {
+                            _isRecordingGesture = false;
+                            _isListeningForKey = false;
+                            _editingRowIndex = -1;
+                            UpdateGestureLabel("");
+                        }
+                        
+                        _gestureMaps.RemoveAt(e.RowIndex);
+                    }
+                }
+            }
+        }
+
         private void DgvGestures_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
         {
-            if (e.RowIndex < 0) return;
+            if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
 
             _editingRowIndex = e.RowIndex;
 

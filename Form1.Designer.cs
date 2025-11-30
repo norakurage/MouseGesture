@@ -39,8 +39,11 @@
             this.dgvGestures.Location = new System.Drawing.Point(12, 50);
             this.dgvGestures.Name = "dgvGestures";
             this.dgvGestures.RowTemplate.Height = 21;
-            this.dgvGestures.Size = new System.Drawing.Size(776, 388);
+            this.dgvGestures.Size = new System.Drawing.Size(460, 300);
             this.dgvGestures.TabIndex = 5;
+            this.dgvGestures.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
+            | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
             // 
             // lblGesture
             // 
@@ -55,7 +58,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(800, 450);
+            this.ClientSize = new System.Drawing.Size(484, 411);
             this.Controls.Add(this.dgvGestures);
             this.Controls.Add(this.lblGesture);
             this.Name = "Form1";
