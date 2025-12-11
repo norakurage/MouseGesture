@@ -627,6 +627,9 @@ namespace WindowsFormsApp1
 
         private void UpdateRealTimeFeedback(string gesture, Point location)
         {
+            float targetPixelSize = SystemInformation.CursorSize.Height * 0.6f;
+            if (targetPixelSize < 12) targetPixelSize = 12;
+
             if (_feedbackForm == null || _feedbackForm.IsDisposed)
             {
                 _feedbackForm = new Form();
@@ -639,11 +642,40 @@ namespace WindowsFormsApp1
                 
                 _feedbackLabel = new Label();
                 _feedbackLabel.ForeColor = Color.White;
-                _feedbackLabel.Font = new Font("Meiryo UI", 12, FontStyle.Bold);
+                _feedbackLabel.Font = new Font("Meiryo UI", targetPixelSize, FontStyle.Bold, GraphicsUnit.Pixel);
                 _feedbackLabel.AutoSize = true;
                 _feedbackLabel.Location = new Point(5, 5);
                 
                 _feedbackForm.Controls.Add(_feedbackLabel);
+            }
+            else
+            {
+                if (Math.Abs(_feedbackLabel.Font.SizeInPoints - (targetPixelSize * 72.0f / _feedbackLabel.DeviceDpi)) > 2.0f && 
+                    Math.Abs(_feedbackLabel.Font.Size - targetPixelSize) > 0.5f) 
+                {
+                     // Size property returns size in Unit of the font. If Unit is Pixel, Size is in Pixels.
+                     // However, to be safe, we check if we need update.
+                     // Actually, we can just check Size assuming it was created with Pixel unit, 
+                     // OR just check if the current font size roughly matches target.
+                     // Since we created it with Pixel, Font.Unit should be Pixel.
+                     
+                     if (_feedbackLabel.Font.Unit == GraphicsUnit.Pixel)
+                     {
+                         if (Math.Abs(_feedbackLabel.Font.Size - targetPixelSize) > 0.5f)
+                         {
+                             var oldFont = _feedbackLabel.Font;
+                             _feedbackLabel.Font = new Font("Meiryo UI", targetPixelSize, FontStyle.Bold, GraphicsUnit.Pixel);
+                             oldFont.Dispose();
+                         }
+                     }
+                     else
+                     {
+                         // If it was created with Points (legacy), just replace it
+                         var oldFont = _feedbackLabel.Font;
+                         _feedbackLabel.Font = new Font("Meiryo UI", targetPixelSize, FontStyle.Bold, GraphicsUnit.Pixel);
+                         oldFont.Dispose();
+                     }
+                }
             }
 
             string displayText = gesture;
