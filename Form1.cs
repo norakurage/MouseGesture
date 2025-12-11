@@ -531,7 +531,8 @@ namespace WindowsFormsApp1
             string currentGesture = string.Join("", _gestureDirections);
             UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
 
-            // Immediate execution logic
+            // Immediate execution logic removed for gestures
+            /*
             var map = _gestureMaps.FirstOrDefault(m => m.Gesture == currentGesture);
             if (map != null)
             {
@@ -542,6 +543,7 @@ namespace WindowsFormsApp1
                 UpdateGestureLabel($"即時実行: {currentGesture}");
                 HideRealTimeFeedback();
             }
+            */
         }
 
         private void OnMouseWheel(object sender, MouseHookEventArgs e)
