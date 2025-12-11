@@ -37,6 +37,9 @@ namespace WindowsFormsApp1
         private Form _feedbackForm;
         private Label _feedbackLabel;
 
+        // Immediate Execution
+        private bool _gestureExecuted = false;
+
         public Form1()
         {
             InitializeComponent();
@@ -392,6 +395,7 @@ namespace WindowsFormsApp1
                     switch (key.ToUpper())
                     {
                         case "ENTER": result += "{ENTER}"; break;
+                        case "RETURN": result += "{ENTER}"; break;
                         case "TAB": result += "{TAB}"; break;
                         case "ESCAPE": result += "{ESC}"; break;
                         case "ESC": result += "{ESC}"; break;
@@ -409,6 +413,7 @@ namespace WindowsFormsApp1
         private void OnRightButtonDown(object sender, MouseHookEventArgs e)
         {
             _isRightButtonDown = true;
+            _gestureExecuted = false;
             _startPoint = e.Point;
             _gestureDirections.Clear();
             
@@ -452,7 +457,11 @@ namespace WindowsFormsApp1
             }
             else
             {
-                if (!string.IsNullOrEmpty(finalGesture))
+                if (_gestureExecuted)
+                {
+                    // Do nothing if already executed
+                }
+                else if (!string.IsNullOrEmpty(finalGesture))
                 {
                     UpdateGestureLabel($"ジェスチャー: {finalGesture}");
                     ExecuteGesture(finalGesture);
@@ -516,6 +525,18 @@ namespace WindowsFormsApp1
             
             string currentGesture = string.Join("", _gestureDirections);
             UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
+
+            // Immediate execution logic
+            var map = _gestureMaps.FirstOrDefault(m => m.Gesture == currentGesture);
+            if (map != null)
+            {
+                ExecuteGesture(currentGesture);
+                _gestureExecuted = true;
+                _gestureDirections.Clear();
+                _startPoint = e.Point; 
+                UpdateGestureLabel($"即時実行: {currentGesture}");
+                HideRealTimeFeedback();
+            }
         }
 
         private void OnMouseWheel(object sender, MouseHookEventArgs e)
@@ -535,6 +556,17 @@ namespace WindowsFormsApp1
                 string currentGesture = string.Join("", _gestureDirections);
                 UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
                 UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
+
+                // Immediate execution logic
+                var map = _gestureMaps.FirstOrDefault(m => m.Gesture == currentGesture);
+                if (map != null)
+                {
+                    ExecuteGesture(currentGesture);
+                    _gestureExecuted = true;
+                    _gestureDirections.Clear();
+                    UpdateGestureLabel($"即時実行: {currentGesture}");
+                    HideRealTimeFeedback();
+                }
             }
             
             e.Handled = true;
@@ -572,6 +604,18 @@ namespace WindowsFormsApp1
             UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
             
             e.Handled = true;
+
+            // Immediate execution logic (Default now)
+            var map = _gestureMaps.FirstOrDefault(m => m.Gesture == currentGesture);
+            if (map != null)
+            {
+                ExecuteGesture(currentGesture);
+                _gestureExecuted = true;
+                _gestureDirections.Clear();
+                _startPoint = e.Point; // Reset start point for potential future moves
+                UpdateGestureLabel($"即時実行: {currentGesture}");
+                HideRealTimeFeedback(); // Optional: Hide feedback as it's done
+            }
         }
 
         private void UpdateRealTimeFeedback(string gesture, Point location)
@@ -636,15 +680,19 @@ namespace WindowsFormsApp1
             {
                 if (!string.IsNullOrEmpty(map.KeyBinding))
                 {
-                    try
+                    // Use BeginInvoke to send keys asynchronously, avoiding conflicts with the hook procedure
+                    this.BeginInvoke(new Action(() =>
                     {
-                        string sendKeys = ConvertReadableToSendKeys(map.KeyBinding);
-                        SendKeys.Send(sendKeys);
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show($"Error sending keys: {ex.Message}");
-                    }
+                        try
+                        {
+                            string sendKeys = ConvertReadableToSendKeys(map.KeyBinding);
+                            SendKeys.Send(sendKeys);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error sending keys: {ex.Message}");
+                        }
+                    }));
                 }
             }
         }
