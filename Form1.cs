@@ -318,6 +318,11 @@ namespace WindowsFormsApp1
                 {
                     string readableFormat = GetReadableKeyString(keyData);
                     _gestureMaps[_editingRowIndex].KeyBinding = readableFormat;
+
+                    if (string.IsNullOrEmpty(_gestureMaps[_editingRowIndex].Name))
+                    {
+                        _gestureMaps[_editingRowIndex].Name = readableFormat;
+                    }
                     
                     foreach (DataGridViewColumn col in dgvGestures.Columns)
                     {
