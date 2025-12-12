@@ -60,15 +60,83 @@ namespace WindowsFormsApp1
             }
         }
 
+        // Structures for SendInput
+        [StructLayout(LayoutKind.Sequential)]
+        public struct INPUT
+        {
+            public uint type;
+            public InputUnion U;
+            public static int Size => Marshal.SizeOf(typeof(INPUT));
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        public struct InputUnion
+        {
+            [FieldOffset(0)] public MOUSEINPUT mi;
+            [FieldOffset(0)] public KEYBDINPUT ki;
+            [FieldOffset(0)] public HARDWAREINPUT hi;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MOUSEINPUT
+        {
+            public int dx;
+            public int dy;
+            public uint mouseData;
+            public uint dwFlags;
+            public uint time;
+            public IntPtr dwExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct KEYBDINPUT
+        {
+            public ushort wVk;
+            public ushort wScan;
+            public uint dwFlags;
+            public uint time;
+            public IntPtr dwExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct HARDWAREINPUT
+        {
+            public uint uMsg;
+            public ushort wParamL;
+            public ushort wParamH;
+        }
+
+        public const int INPUT_MOUSE = 0;
+        public const int INPUT_KEYBOARD = 1;
+        public const int INPUT_HARDWARE = 2;
+
+        public const uint MOUSEEVENTF_MOVE = 0x0001;
+        public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+        public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+        public const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+        public const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+        public const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
         private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
 
-        public bool Paused { get; set; }
+        // Use IntPtr for 64-bit compatibility
+        public static readonly IntPtr INJECTED_EVENT_ID = (IntPtr)0x12345;
 
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
-            if (nCode >= 0 && !Paused)
+            if (nCode >= 0)
             {
                 MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+
+                // Ignore events injected by this application
+                if (hookStruct.dwExtraInfo == INJECTED_EVENT_ID)
+                {
+                    return CallNextHookEx(_hookID, nCode, wParam, lParam);
+                }
+
                 MousePoint p = new MousePoint(hookStruct.pt.x, hookStruct.pt.y);
                 MouseHookEventArgs e = new MouseHookEventArgs(p, (int)hookStruct.mouseData);
 
@@ -100,13 +168,6 @@ namespace WindowsFormsApp1
             }
             return CallNextHookEx(_hookID, nCode, wParam, lParam);
         }
-
-        // P/Invoke for simulating mouse events
-        [DllImport("user32.dll")]
-        public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
-
-        public const int MOUSEEVENTF_RIGHTDOWN = 0x0008;
-        public const int MOUSEEVENTF_RIGHTUP = 0x0010;
 
         private const int WH_MOUSE_LL = 14;
 

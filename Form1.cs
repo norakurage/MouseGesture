@@ -473,18 +473,49 @@ namespace WindowsFormsApp1
                 }
                 else
                 {
-                    UpdateGestureLabel("右クリック");
                     SendRightClick(e.Point);
+                    UpdateGestureLabel("右クリック");
                 }
             }
         }
 
         private void SendRightClick(MousePoint p)
         {
-            _mouseHook.Paused = true;
-            MouseHook.mouse_event(MouseHook.MOUSEEVENTF_RIGHTDOWN, p.X, p.Y, 0, 0);
-            MouseHook.mouse_event(MouseHook.MOUSEEVENTF_RIGHTUP, p.X, p.Y, 0, 0);
-            _mouseHook.Paused = false;
+            // Perform click asynchronously to avoid blocking the hook and to add delay
+            Task.Run(async () => 
+            {
+                var inputDown = new MouseHook.INPUT
+                {
+                    type = MouseHook.INPUT_MOUSE,
+                    U = new MouseHook.InputUnion
+                    {
+                        mi = new MouseHook.MOUSEINPUT
+                        {
+                            dwFlags = MouseHook.MOUSEEVENTF_RIGHTDOWN,
+                            dwExtraInfo = MouseHook.INJECTED_EVENT_ID
+                        }
+                    }
+                };
+
+                MouseHook.SendInput(1, new[] { inputDown }, MouseHook.INPUT.Size);
+
+                await Task.Delay(50); 
+
+                var inputUp = new MouseHook.INPUT
+                {
+                    type = MouseHook.INPUT_MOUSE,
+                    U = new MouseHook.InputUnion
+                    {
+                        mi = new MouseHook.MOUSEINPUT
+                        {
+                            dwFlags = MouseHook.MOUSEEVENTF_RIGHTUP,
+                            dwExtraInfo = MouseHook.INJECTED_EVENT_ID
+                        }
+                    }
+                };
+
+                MouseHook.SendInput(1, new[] { inputUp }, MouseHook.INPUT.Size);
+            });
         }
 
         private void OnMouseMove(object sender, MouseHookEventArgs e)
@@ -706,10 +737,17 @@ namespace WindowsFormsApp1
 
         private void UpdateGestureLabel(string text)
         {
-            if (lblGesture.InvokeRequired)
-                lblGesture.Invoke(new Action(() => lblGesture.Text = text));
-            else
-                lblGesture.Text = text;
+            try
+            {
+                if (lblGesture.InvokeRequired)
+                    lblGesture.BeginInvoke(new Action(() => lblGesture.Text = text));
+                else
+                    lblGesture.Text = text;
+            }
+            catch (Exception)
+            {
+                // Ignore errors during disposal
+            }
         }
 
         private void ExecuteGesture(string gesture)
