@@ -995,7 +995,27 @@ namespace WindowsFormsApp1
             e.Handled = true;
 
             // Immediate execution logic (Default now)
-            var map = _gestureMaps.FirstOrDefault(m => m.Gesture == currentGesture);
+            // Skip execution if recording
+            if (_isRecordingGesture) return;
+
+            GestureMap map = null;
+            string appPath = GetActiveProcessPath();
+
+            if (!string.IsNullOrEmpty(appPath))
+            {
+                var appProfile = _appProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && appPath.Equals(p.AppPath, StringComparison.OrdinalIgnoreCase));
+                if (appProfile != null)
+                {
+                    map = appProfile.Gestures.FirstOrDefault(m => m.Gesture == currentGesture);
+                }
+            }
+
+            // Fallback to global
+            if (map == null)
+            {
+                map = _gestureMaps.FirstOrDefault(m => m.Gesture == currentGesture);
+            }
+
             if (map != null)
             {
                 ExecuteGesture(currentGesture);
@@ -1061,24 +1081,31 @@ namespace WindowsFormsApp1
             }
 
             string displayText = gesture;
-            
-            // Check active app for gesture name
-            string appPath = GetActiveProcessPath();
             GestureMap match = null;
 
-            if (!string.IsNullOrEmpty(appPath))
+            if (_isRecordingGesture && _editingList != null)
             {
-                var appProfile = _appProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && appPath.Equals(p.AppPath, StringComparison.OrdinalIgnoreCase));
-                if (appProfile != null)
-                {
-                    match = appProfile.Gestures.FirstOrDefault(m => m.Gesture == gesture);
-                }
+                match = _editingList.FirstOrDefault(m => m.Gesture == gesture);
             }
-
-            // Fallback to global
-            if (match == null)
+            else
             {
-                match = _gestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+                // Check active app for gesture name
+                string appPath = GetActiveProcessPath();
+
+                if (!string.IsNullOrEmpty(appPath))
+                {
+                    var appProfile = _appProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && appPath.Equals(p.AppPath, StringComparison.OrdinalIgnoreCase));
+                    if (appProfile != null)
+                    {
+                        match = appProfile.Gestures.FirstOrDefault(m => m.Gesture == gesture);
+                    }
+                }
+
+                // Fallback to global
+                if (match == null)
+                {
+                    match = _gestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+                }
             }
 
             if (match != null && !string.IsNullOrEmpty(match.Name))
