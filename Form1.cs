@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -9,6 +10,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.IO;
 using System.Xml.Serialization;
+using System.Runtime.InteropServices;
 
 namespace WindowsFormsApp1
 {
@@ -25,10 +27,7 @@ namespace WindowsFormsApp1
         // Data binding
         private BindingList<GestureMap> _gestureMaps = new BindingList<GestureMap>();
 
-        // Editing state
-        private int _editingRowIndex = -1;
-        private bool _isRecordingGesture = false;
-        private bool _isListeningForKey = false;
+
 
         // UI Controls
         private Button _btnAddGesture;
@@ -40,7 +39,49 @@ namespace WindowsFormsApp1
         // Immediate Execution
         private bool _gestureExecuted = false;
 
+        // App Profiles
+        private List<AppProfile> _appProfiles = new List<AppProfile>();
+        private BindingList<GestureMap> _appGestureMaps = new BindingList<GestureMap>();
+        private AppProfile _currentAppProfile;
+
+        // UI Controls - Tabs
+        private TabControl _tabControl;
+        private TabPage _tabGlobal;
+        private TabPage _tabApp;
+        
+        // UI Controls - App Tab
+        private ComboBox _cmbApps;
+        private Button _btnAddApplication;
+        private Button _btnRemoveApp;
+        private DataGridView _dgvAppGestures;
+        private Label _lblAppHint;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("kernel32.dll")]
+        public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+        [DllImport("kernel32.dll")]
+        public static extern bool CloseHandle(IntPtr hObject);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags, StringBuilder lpExeName, ref uint lpdwSize);
+
+        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+        // Editing State
+        private int _editingRowIndex = -1;
+        private bool _isRecordingGesture = false;
+        private bool _isListeningForKey = false;
+        private DataGridView _editingGrid; // Track which grid is editing
+        private BindingList<GestureMap> _editingList; // Track which list is being edited
+
         public Form1()
+
         {
             InitializeComponent();
         }
@@ -49,10 +90,12 @@ namespace WindowsFormsApp1
         {
             if (IsDesignMode()) return;
 
-            ApplyModernTheme();
-            InitializeAddButton();
-            LoadGestures();
+            LoadGestures(); // Load data first
 
+            InitializeCustomUI(); // Create Tabs and move controls
+            InitializeAddButton(); // Add buttons
+            ApplyModernTheme(); // Apply theme to all controls
+            
             _mouseHook = new MouseHook();
             _mouseHook.RightButtonDown += OnRightButtonDown;
             _mouseHook.RightButtonUp += OnRightButtonUp;
@@ -63,16 +106,117 @@ namespace WindowsFormsApp1
             _mouseHook.MouseWheel += OnMouseWheel;
             _mouseHook.Start();
 
-            // Setup Grid
-            dgvGestures.AllowUserToAddRows = false;
+            // Setup Global Grid
+            SetupGridProperties(dgvGestures);
             dgvGestures.DataSource = _gestureMaps;
-            dgvGestures.CellDoubleClick += DgvGestures_CellDoubleClick;
-            dgvGestures.CellClick += DgvGestures_CellClick;
-            dgvGestures.CellContentClick += DgvGestures_CellContentClick;
-            dgvGestures.EditingControlShowing += DgvGestures_EditingControlShowing;
+            
+            // Setup App Grid
+            SetupGridProperties(_dgvAppGestures);
+            _dgvAppGestures.DataSource = _appGestureMaps;
 
-            // Add Delete Column
-            if (dgvGestures.Columns["Delete"] == null)
+            // Handle clicks outside grid to commit edit
+            this.MouseDown += EndEditOnMouseDown;
+            lblGesture.MouseDown += EndEditOnMouseDown;
+            dgvGestures.MouseDown += EndEditOnMouseDown;
+            _dgvAppGestures.MouseDown += EndEditOnMouseDown;
+            
+             // Select first app if available
+            if (_cmbApps.Items.Count > 0)
+                _cmbApps.SelectedIndex = 0;
+        }
+
+        private void InitializeCustomUI()
+        {
+            // Create TabControl
+            _tabControl = new TabControl();
+            _tabControl.Dock = DockStyle.Fill;
+            _tabControl.Location = new Point(0, 50); // Below label
+            _tabControl.Size = new Size(this.ClientSize.Width, this.ClientSize.Height - 50);
+            
+            // Create Global Tab
+            _tabGlobal = new TabPage("共通設定");
+            _tabGlobal.BackColor = Color.FromArgb(30, 30, 30);
+            
+            // Create App Tab
+            _tabApp = new TabPage("アプリ別設定");
+            _tabApp.BackColor = Color.FromArgb(30, 30, 30);
+            
+            // Move existing dgvGestures to Global Tab
+            this.Controls.Remove(dgvGestures);
+            _tabGlobal.Controls.Add(dgvGestures);
+            dgvGestures.Dock = DockStyle.Fill;
+            
+            // Setup App Tab UI
+            Panel panelTop = new Panel();
+            panelTop.Dock = DockStyle.Top;
+            panelTop.Height = 40;
+            panelTop.BackColor = Color.FromArgb(30, 30, 30);
+            
+            _lblAppHint = new Label();
+            _lblAppHint.Text = "対象アプリ:";
+            _lblAppHint.ForeColor = Color.White;
+            _lblAppHint.Location = new Point(10, 12);
+            _lblAppHint.AutoSize = true;
+            
+            _cmbApps = new ComboBox();
+            _cmbApps.Location = new Point(80, 8);
+            _cmbApps.Width = 200;
+            _cmbApps.DropDownStyle = ComboBoxStyle.DropDownList;
+            _cmbApps.SelectedIndexChanged += CmbApps_SelectedIndexChanged;
+            
+            _btnAddApplication = new Button();
+            _btnAddApplication.Text = "アプリ追加";
+            _btnAddApplication.Location = new Point(290, 7);
+            _btnAddApplication.Size = new Size(80, 25);
+            _btnAddApplication.FlatStyle = FlatStyle.Flat;
+            _btnAddApplication.BackColor = Color.FromArgb(0, 122, 204);
+            _btnAddApplication.ForeColor = Color.White;
+            _btnAddApplication.Click += BtnAddApplication_Click;
+            
+            _btnRemoveApp = new Button();
+            _btnRemoveApp.Text = "削除";
+            _btnRemoveApp.Location = new Point(380, 7);
+            _btnRemoveApp.Size = new Size(60, 25);
+            _btnRemoveApp.FlatStyle = FlatStyle.Flat;
+            _btnRemoveApp.BackColor = Color.IndianRed;
+            _btnRemoveApp.ForeColor = Color.White;
+            _btnRemoveApp.Click += BtnRemoveApp_Click;
+
+            panelTop.Controls.Add(_lblAppHint);
+            panelTop.Controls.Add(_cmbApps);
+            panelTop.Controls.Add(_btnAddApplication);
+            panelTop.Controls.Add(_btnRemoveApp);
+            
+            _dgvAppGestures = new DataGridView();
+            _dgvAppGestures.Dock = DockStyle.Fill;
+            _dgvAppGestures.BackgroundColor = Color.FromArgb(30, 30, 30);
+            
+            _tabApp.Controls.Add(_dgvAppGestures);
+            _tabApp.Controls.Add(panelTop);
+            
+            _tabControl.Controls.Add(_tabGlobal);
+            _tabControl.Controls.Add(_tabApp);
+            
+            this.Controls.Add(_tabControl);
+            
+            // Adjust Label Logic
+            lblGesture.Parent = this; // Ensure it stays on top or outside tabs
+            lblGesture.BringToFront();
+            
+            // Populate App Combo
+            RefreshAppList();
+        }
+
+        private void SetupGridProperties(DataGridView dgv)
+        {
+            dgv.AllowUserToAddRows = false;
+            dgv.CellDoubleClick += DgvGestures_CellDoubleClick;
+            dgv.CellClick += DgvGestures_CellClick;
+            dgv.CellContentClick += DgvGestures_CellContentClick;
+            dgv.EditingControlShowing += DgvGestures_EditingControlShowing;
+            dgv.MouseDown += EndEditOnMouseDown;
+
+            if (dgv.Columns["Delete"] == null)
             {
                 DataGridViewButtonColumn btn = new DataGridViewButtonColumn();
                 btn.Name = "Delete";
@@ -83,26 +227,10 @@ namespace WindowsFormsApp1
                 btn.FlatStyle = FlatStyle.Flat;
                 btn.DefaultCellStyle.BackColor = Color.FromArgb(45, 45, 48);
                 btn.DefaultCellStyle.ForeColor = Color.IndianRed;
-                dgvGestures.Columns.Add(btn);
+                dgv.Columns.Add(btn);
             }
-
-            // Configure Columns
-            // Ensure columns are generated
-            if (dgvGestures.Columns.Count > 0)
-            {
-                if (dgvGestures.Columns["Name"] != null) dgvGestures.Columns["Name"].ReadOnly = false;
-                if (dgvGestures.Columns["Gesture"] != null) dgvGestures.Columns["Gesture"].ReadOnly = true;
-                if (dgvGestures.Columns["KeyBinding"] != null) dgvGestures.Columns["KeyBinding"].ReadOnly = true;
-            }
-
-            // Resize grid to make room for the button
-            dgvGestures.Height -= 50;
-
-            // Handle clicks outside grid to commit edit
-            this.MouseDown += EndEditOnMouseDown;
-            lblGesture.MouseDown += EndEditOnMouseDown;
-            dgvGestures.MouseDown += EndEditOnMouseDown;
         }
+
 
         private void LoadGestures()
         {
@@ -110,14 +238,33 @@ namespace WindowsFormsApp1
             {
                 if (File.Exists(SETTINGS_FILE))
                 {
-                    XmlSerializer serializer = new XmlSerializer(typeof(List<GestureMap>));
-                    using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Open))
+                    string rootName = "";
+                    using (System.Xml.XmlReader reader = System.Xml.XmlReader.Create(SETTINGS_FILE))
                     {
-                        var loadedGestures = (List<GestureMap>)serializer.Deserialize(fs);
-                        _gestureMaps.Clear();
-                        foreach (var gesture in loadedGestures)
+                        if (reader.MoveToContent() == System.Xml.XmlNodeType.Element)
                         {
-                            _gestureMaps.Add(gesture);
+                            rootName = reader.Name;
+                        }
+                    }
+
+                    if (rootName == "ArrayOfAppProfile")
+                    {
+                        XmlSerializer serializer = new XmlSerializer(typeof(List<AppProfile>));
+                        using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Open))
+                        {
+                            _appProfiles = (List<AppProfile>)serializer.Deserialize(fs);
+                        }
+                    }
+                    else
+                    {
+                        // Fallback: Try loading old format (List<GestureMap>) or unknown
+                        // This handles "ArrayOfGestureMap"
+                        XmlSerializer serializer = new XmlSerializer(typeof(List<GestureMap>));
+                        using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Open))
+                        {
+                            var loadedGestures = (List<GestureMap>)serializer.Deserialize(fs);
+                            _appProfiles.Clear();
+                            _appProfiles.Add(new AppProfile { AppName = "Global", Gestures = loadedGestures });
                         }
                     }
                 }
@@ -126,16 +273,42 @@ namespace WindowsFormsApp1
             {
                 MessageBox.Show($"設定の読み込みに失敗しました: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+
+            // Ensure Global profile exists
+            if (_appProfiles.Count == 0 || !_appProfiles.Any(p => string.IsNullOrEmpty(p.AppPath)))
+            {
+                var global = _appProfiles.FirstOrDefault(p => string.IsNullOrEmpty(p.AppPath));
+                if (global == null)
+                {
+                    global = new AppProfile { AppName = "Global", AppPath = "" };
+                    _appProfiles.Insert(0, global);
+                }
+            }
+
+            // Populate Main Global Binding List
+            var globalProfile = _appProfiles.First(p => string.IsNullOrEmpty(p.AppPath));
+            _gestureMaps.Clear();
+            foreach(var g in globalProfile.Gestures) _gestureMaps.Add(g);
         }
 
         private void SaveGestures()
         {
             try
             {
-                XmlSerializer serializer = new XmlSerializer(typeof(List<GestureMap>));
+                // Sync Global
+                var globalProfile = _appProfiles.First(p => string.IsNullOrEmpty(p.AppPath));
+                globalProfile.Gestures = _gestureMaps.ToList();
+
+                // Sync Current App (if selected)
+                if (_currentAppProfile != null)
+                {
+                    _currentAppProfile.Gestures = _appGestureMaps.ToList();
+                }
+
+                XmlSerializer serializer = new XmlSerializer(typeof(List<AppProfile>));
                 using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Create))
                 {
-                    serializer.Serialize(fs, _gestureMaps.ToList());
+                    serializer.Serialize(fs, _appProfiles);
                 }
             }
             catch (Exception ex)
@@ -144,11 +317,88 @@ namespace WindowsFormsApp1
             }
         }
 
+        private void RefreshAppList()
+        {
+            _cmbApps.Items.Clear();
+            foreach (var app in _appProfiles.Where(a => !string.IsNullOrEmpty(a.AppPath)))
+            {
+                _cmbApps.Items.Add(app);
+            }
+            _cmbApps.DisplayMember = "AppName";
+        }
+
+        private void BtnAddApplication_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog ofd = new OpenFileDialog())
+            {
+                ofd.Filter = "Executable files (*.exe)|*.exe";
+                if (ofd.ShowDialog() == DialogResult.OK)
+                {
+                    string path = ofd.FileName;
+                    if (_appProfiles.Any(p => p.AppPath != null && p.AppPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        MessageBox.Show("このアプリは既に追加されています。");
+                        return;
+                    }
+
+                    var newProfile = new AppProfile 
+                    { 
+                        AppPath = path, 
+                        AppName = Path.GetFileNameWithoutExtension(path) 
+                    };
+                    _appProfiles.Add(newProfile);
+                    RefreshAppList();
+                    _cmbApps.SelectedItem = newProfile;
+                }
+            }
+        }
+
+        private void BtnRemoveApp_Click(object sender, EventArgs e)
+        {
+            if (_cmbApps.SelectedItem is AppProfile profile)
+            {
+                if (MessageBox.Show($"アプリ '{profile.AppName}' の設定を削除しますか？", "確認", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                {
+                    _appProfiles.Remove(profile);
+                    RefreshAppList();
+                    _currentAppProfile = null;
+                    _appGestureMaps.Clear();
+                }
+            }
+        }
+
+        private void CmbApps_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (_cmbApps.SelectedItem is AppProfile profile)
+            {
+                // Save previous if needed? We use BindingList so it should be fine if we sync before save.
+                // But we need to sync back to the object when switching AWAY? 
+                // Actually the current object IS the one in the list.
+                // But _appGestureMaps is a separate BindingList. 
+                
+                // Sync previous
+                if (_currentAppProfile != null)
+                {
+                     _currentAppProfile.Gestures = _appGestureMaps.ToList();
+                }
+
+                _currentAppProfile = profile;
+                _appGestureMaps.Clear();
+                foreach(var g in profile.Gestures) _appGestureMaps.Add(g);
+                
+                _dgvAppGestures.Refresh();
+            }
+        }
+
         private void EndEditOnMouseDown(object sender, MouseEventArgs e)
         {
             if (dgvGestures.IsCurrentCellInEditMode)
             {
                 dgvGestures.EndEdit();
+            }
+            if (_dgvAppGestures != null && _dgvAppGestures.IsCurrentCellInEditMode)
+            {
+                _dgvAppGestures.EndEdit();
             }
         }
 
@@ -164,32 +414,70 @@ namespace WindowsFormsApp1
 
         private void InitializeAddButton()
         {
+            // Add Button (Global)
             _btnAddGesture = new Button();
             _btnAddGesture.Text = "追加";
             _btnAddGesture.Size = new Size(100, 35);
-            _btnAddGesture.Location = new Point(dgvGestures.Right - 100, dgvGestures.Bottom + 10); 
+            // Will position later or relative
             
             _btnAddGesture.FlatStyle = FlatStyle.Flat;
             _btnAddGesture.FlatAppearance.BorderSize = 0;
             _btnAddGesture.BackColor = Color.FromArgb(0, 122, 204);
             _btnAddGesture.ForeColor = Color.White;
-            _btnAddGesture.Font = new Font("Meiryo UI", 10, FontStyle.Bold); // Use Japanese font
+            _btnAddGesture.Font = new Font("Meiryo UI", 10, FontStyle.Bold); 
             _btnAddGesture.Cursor = Cursors.Hand;
             _btnAddGesture.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             _btnAddGesture.Click += BtnAddGesture_Click;
             
-            this.Controls.Add(_btnAddGesture);
+            // Add to Global Tab
+            _btnAddGesture.Location = new Point(_tabGlobal.Width - 120, _tabGlobal.Height - 50);
+            _tabGlobal.Controls.Add(_btnAddGesture);
             _btnAddGesture.BringToFront();
+
+            // Add Button (App) - Create a separate instance or reuse?
+            // Reusing might be tricky if tabs switch. Better create another button for App tab.
+            Button btnAddAppGesture = new Button();
+            btnAddAppGesture.Text = "追加";
+            btnAddAppGesture.Size = new Size(100, 35);
+            btnAddAppGesture.FlatStyle = FlatStyle.Flat;
+            btnAddAppGesture.FlatAppearance.BorderSize = 0;
+            btnAddAppGesture.BackColor = Color.FromArgb(0, 122, 204);
+            btnAddAppGesture.ForeColor = Color.White;
+            btnAddAppGesture.Font = new Font("Meiryo UI", 10, FontStyle.Bold);
+            btnAddAppGesture.Cursor = Cursors.Hand;
+            btnAddAppGesture.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            btnAddAppGesture.Click += (s, e) => 
+            {
+                 if (_currentAppProfile == null) 
+                 {
+                     MessageBox.Show("アプリを選択してください。");
+                     return;
+                 }
+                 _appGestureMaps.Add(new GestureMap());
+                 if (_dgvAppGestures.Rows.Count > 0)
+                     _dgvAppGestures.FirstDisplayedScrollingRowIndex = _dgvAppGestures.Rows.Count - 1;
+            };
+            
+            // Layout is not finalized yet in Initialize, so place it anchored
+            btnAddAppGesture.Location = new Point(400, 300); // Temporary, Anchor will handle it
+            _tabApp.Controls.Add(btnAddAppGesture);
+            btnAddAppGesture.BringToFront();
         }
 
         private void BtnAddGesture_Click(object sender, EventArgs e)
         {
-            _gestureMaps.Add(new GestureMap());
-            
-            if (dgvGestures.Rows.Count > 0)
+            // Determine which list to add to based on active tab
+            if (_tabControl.SelectedTab == _tabGlobal)
             {
-                int lastRowIndex = dgvGestures.Rows.Count - 1;
-                dgvGestures.FirstDisplayedScrollingRowIndex = lastRowIndex;
+                _gestureMaps.Add(new GestureMap());
+                if (dgvGestures.Rows.Count > 0)
+                {
+                    dgvGestures.FirstDisplayedScrollingRowIndex = dgvGestures.Rows.Count - 1;
+                }
+            }
+            else
+            {
+                // Should be handled by the other button, but just in case
             }
         }
 
@@ -198,31 +486,38 @@ namespace WindowsFormsApp1
             // Form
             this.BackColor = Color.FromArgb(30, 30, 30);
             this.ForeColor = Color.White;
-            this.Font = new Font("Meiryo UI", 10); // Japanese Font
+            this.Font = new Font("Meiryo UI", 10); 
             this.Text = "マウスジェスチャーアプリ";
 
-            // DataGridView
-            dgvGestures.BackgroundColor = Color.FromArgb(30, 30, 30);
-            dgvGestures.BorderStyle = BorderStyle.FixedSingle; // Frame the table
-            dgvGestures.GridColor = Color.FromArgb(50, 50, 50);
-            dgvGestures.EnableHeadersVisualStyles = false;
-            dgvGestures.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
-            dgvGestures.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(0, 122, 204);
-            dgvGestures.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
-            dgvGestures.ColumnHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(0, 122, 204);
-            dgvGestures.RowHeadersVisible = false;
-            dgvGestures.RowHeadersDefaultCellStyle.BackColor = Color.FromArgb(30, 30, 30);
-            dgvGestures.DefaultCellStyle.BackColor = Color.FromArgb(45, 45, 48);
-            dgvGestures.DefaultCellStyle.ForeColor = Color.White;
-            dgvGestures.DefaultCellStyle.SelectionBackColor = Color.FromArgb(62, 62, 66);
-            dgvGestures.DefaultCellStyle.SelectionForeColor = Color.White;
+            // Grid Styling Helper
+            Action<DataGridView> styleGrid = (dgv) => 
+            {
+                dgv.BackgroundColor = Color.FromArgb(30, 30, 30);
+                dgv.BorderStyle = BorderStyle.FixedSingle;
+                dgv.GridColor = Color.FromArgb(50, 50, 50);
+                dgv.EnableHeadersVisualStyles = false;
+                dgv.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
+                dgv.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(0, 122, 204);
+                dgv.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
+                dgv.ColumnHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(0, 122, 204);
+                dgv.RowHeadersVisible = false;
+                dgv.RowHeadersDefaultCellStyle.BackColor = Color.FromArgb(30, 30, 30);
+                dgv.DefaultCellStyle.BackColor = Color.FromArgb(45, 45, 48);
+                dgv.DefaultCellStyle.ForeColor = Color.White;
+                dgv.DefaultCellStyle.SelectionBackColor = Color.FromArgb(62, 62, 66);
+                dgv.DefaultCellStyle.SelectionForeColor = Color.White;
+            };
+
+            styleGrid(dgvGestures);
+            if (_dgvAppGestures != null) styleGrid(_dgvAppGestures);
 
             // Label
             lblGesture.ForeColor = Color.White;
             
-            if (_btnAddGesture != null)
+            // Adjust buttons if needed
+             if (_btnAddGesture != null && _tabGlobal != null)
             {
-                 _btnAddGesture.Location = new Point(dgvGestures.Right - _btnAddGesture.Width, dgvGestures.Bottom + 10);
+                 _btnAddGesture.Location = new Point(_tabGlobal.Width - 120, _tabGlobal.Height - 50);
             }
         }
 
@@ -249,10 +544,11 @@ namespace WindowsFormsApp1
         {
             if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
             {
-                var col = dgvGestures.Columns[e.ColumnIndex];
+                var dgv = sender as DataGridView;
+                var col = dgv.Columns[e.ColumnIndex];
                 if (col.Name == "Name" || col.HeaderText == "名前")
                 {
-                    dgvGestures.BeginEdit(true);
+                    dgv.BeginEdit(true);
                 }
             }
         }
@@ -261,20 +557,25 @@ namespace WindowsFormsApp1
         {
             if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
             {
-                if (dgvGestures.Columns[e.ColumnIndex].Name == "Delete")
+                var dgv = sender as DataGridView;
+                var list = dgv.DataSource as BindingList<GestureMap>;
+
+                if (dgv.Columns[e.ColumnIndex].Name == "Delete")
                 {
-                    if (e.RowIndex < _gestureMaps.Count)
+                    if (e.RowIndex < list.Count)
                     {
                         // Stop editing if active
-                        if (_editingRowIndex == e.RowIndex)
+                        if (_editingRowIndex == e.RowIndex && _editingGrid == dgv)
                         {
                             _isRecordingGesture = false;
                             _isListeningForKey = false;
                             _editingRowIndex = -1;
+                            _editingGrid = null;
+                            _editingList = null;
                             UpdateGestureLabel("");
                         }
                         
-                        _gestureMaps.RemoveAt(e.RowIndex);
+                        list.RemoveAt(e.RowIndex);
                     }
                 }
             }
@@ -284,32 +585,37 @@ namespace WindowsFormsApp1
         {
             if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
 
-            _editingRowIndex = e.RowIndex;
+            var dgv = sender as DataGridView;
+            var list = dgv.DataSource as BindingList<GestureMap>;
 
-            if (_editingRowIndex >= _gestureMaps.Count)
+            _editingRowIndex = e.RowIndex;
+            _editingGrid = dgv;
+            _editingList = list;
+
+            if (_editingRowIndex >= list.Count)
             {
-                _gestureMaps.Add(new GestureMap());
+                list.Add(new GestureMap());
             }
 
-            string headerText = dgvGestures.Columns[e.ColumnIndex].HeaderText;
+            string headerText = dgv.Columns[e.ColumnIndex].HeaderText;
 
             if (headerText == "ジェスチャー") // Gesture
             {
                 _isRecordingGesture = true;
                 UpdateGestureLabel($"行 {e.RowIndex + 1} のジェスチャーを記録中...");
-                dgvGestures.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.DarkRed;
+                dgv.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.DarkRed;
             }
             else if (headerText == "キー割り当て") // KeyBinding
             {
                 _isListeningForKey = true;
                 UpdateGestureLabel($"行 {e.RowIndex + 1} のキーを押してください...");
-                dgvGestures.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.DarkBlue;
+                dgv.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.DarkBlue;
             }
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (_isListeningForKey && _editingRowIndex >= 0 && _editingRowIndex < _gestureMaps.Count)
+            if (_isListeningForKey && _editingRowIndex >= 0 && _editingList != null && _editingRowIndex < _editingList.Count)
             {
                 Keys keyCode = keyData & Keys.KeyCode;
                 bool isModifier = keyCode == Keys.ControlKey || keyCode == Keys.ShiftKey || keyCode == Keys.Menu;
@@ -317,26 +623,31 @@ namespace WindowsFormsApp1
                 if (!isModifier)
                 {
                     string readableFormat = GetReadableKeyString(keyData);
-                    _gestureMaps[_editingRowIndex].KeyBinding = readableFormat;
+                    _editingList[_editingRowIndex].KeyBinding = readableFormat;
 
-                    if (string.IsNullOrEmpty(_gestureMaps[_editingRowIndex].Name))
+                    if (string.IsNullOrEmpty(_editingList[_editingRowIndex].Name))
                     {
-                        _gestureMaps[_editingRowIndex].Name = readableFormat;
+                        _editingList[_editingRowIndex].Name = readableFormat;
                     }
                     
-                    foreach (DataGridViewColumn col in dgvGestures.Columns)
+                    if (_editingGrid != null)
                     {
-                        if (col.HeaderText == "キー割り当て")
+                        foreach (DataGridViewColumn col in _editingGrid.Columns)
                         {
-                            dgvGestures.Rows[_editingRowIndex].Cells[col.Index].Style.BackColor = dgvGestures.DefaultCellStyle.BackColor;
-                            break;
+                            if (col.HeaderText == "キー割り当て")
+                            {
+                                _editingGrid.Rows[_editingRowIndex].Cells[col.Index].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
+                                break;
+                            }
                         }
+                        _editingGrid.Refresh();
                     }
                     
                     _isListeningForKey = false;
                     _editingRowIndex = -1;
+                    _editingGrid = null;
+                    _editingList = null;
                     UpdateGestureLabel("キーを割り当てました。");
-                    dgvGestures.Refresh();
                 }
                 return true;
             }
@@ -435,11 +746,11 @@ namespace WindowsFormsApp1
             string finalGesture = string.Join("", _gestureDirections);
             e.Handled = true;
 
-            if (_isRecordingGesture && _editingRowIndex >= 0 && _editingRowIndex < _gestureMaps.Count)
+            if (_isRecordingGesture && _editingRowIndex >= 0 && _editingList != null && _editingRowIndex < _editingList.Count)
             {
                 if (!string.IsNullOrEmpty(finalGesture))
                 {
-                    _gestureMaps[_editingRowIndex].Gesture = finalGesture;
+                    _editingList[_editingRowIndex].Gesture = finalGesture;
                     UpdateGestureLabel($"記録完了: {finalGesture}");
                 }
                 else
@@ -447,18 +758,23 @@ namespace WindowsFormsApp1
                     UpdateGestureLabel("記録キャンセル");
                 }
                 
-                foreach (DataGridViewColumn col in dgvGestures.Columns)
+                if (_editingGrid != null)
                 {
-                    if (col.HeaderText == "ジェスチャー")
+                    foreach (DataGridViewColumn col in _editingGrid.Columns)
                     {
-                        dgvGestures.Rows[_editingRowIndex].Cells[col.Index].Style.BackColor = dgvGestures.DefaultCellStyle.BackColor;
-                        break;
+                        if (col.HeaderText == "ジェスチャー")
+                        {
+                            _editingGrid.Rows[_editingRowIndex].Cells[col.Index].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
+                            break;
+                        }
                     }
+                    _editingGrid.Refresh();
                 }
 
                 _isRecordingGesture = false;
                 _editingRowIndex = -1;
-                dgvGestures.Refresh();
+                _editingGrid = null;
+                _editingList = null;
             }
             else
             {
@@ -468,14 +784,49 @@ namespace WindowsFormsApp1
                 }
                 else if (!string.IsNullOrEmpty(finalGesture))
                 {
-                    UpdateGestureLabel($"ジェスチャー: {finalGesture}");
+                    // UpdateGestureLabel($"ジェスチャー: {finalGesture}");
                     ExecuteGesture(finalGesture);
                 }
                 else
                 {
                     SendRightClick(e.Point);
-                    UpdateGestureLabel("右クリック");
+                    // UpdateGestureLabel("右クリック");
                 }
+            }
+        }
+
+        private string GetActiveProcessPath()
+        {
+            try
+            {
+                IntPtr hWnd = GetForegroundWindow();
+                if (hWnd == IntPtr.Zero) return null;
+
+                GetWindowThreadProcessId(hWnd, out uint processId);
+                
+                IntPtr hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+                if (hProcess != IntPtr.Zero)
+                {
+                    try
+                    {
+                        StringBuilder buffer = new StringBuilder(1024);
+                        uint size = (uint)buffer.Capacity;
+                        if (QueryFullProcessImageName(hProcess, 0, buffer, ref size))
+                        {
+                            return buffer.ToString();
+                        }
+                    }
+                    finally
+                    {
+                        CloseHandle(hProcess);
+                    }
+                }
+                
+                return null;
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -536,7 +887,7 @@ namespace WindowsFormsApp1
                 if (_gestureDirections.Count < MAX_GESTURE_STEPS && (_gestureDirections.Count == 0 || _gestureDirections.Last() != direction))
                 {
                     _gestureDirections.Add(direction);
-                    UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
+                    // UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
                     _startPoint = e.Point;
                 }
                 else if (_gestureDirections.Count > 0 && _gestureDirections.Last() == direction)
@@ -592,7 +943,7 @@ namespace WindowsFormsApp1
             {
                 _gestureDirections.Add(direction);
                 string currentGesture = string.Join("", _gestureDirections);
-                UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
+                // UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
                 UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
 
                 // Immediate execution logic
@@ -602,7 +953,7 @@ namespace WindowsFormsApp1
                     ExecuteGesture(currentGesture);
                     _gestureExecuted = true;
                     _gestureDirections.Clear();
-                    UpdateGestureLabel($"即時実行: {currentGesture}");
+                    // UpdateGestureLabel($"即時実行: {currentGesture}");
                     HideRealTimeFeedback();
                 }
             }
@@ -638,7 +989,7 @@ namespace WindowsFormsApp1
             _gestureDirections.Add(direction);
             
             string currentGesture = string.Join("", _gestureDirections);
-            UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
+            // UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
             UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
             
             e.Handled = true;
@@ -651,7 +1002,7 @@ namespace WindowsFormsApp1
                 _gestureExecuted = true;
                 _gestureDirections.Clear();
                 _startPoint = e.Point; // Reset start point for potential future moves
-                UpdateGestureLabel($"即時実行: {currentGesture}");
+                // UpdateGestureLabel($"即時実行: {currentGesture}");
                 HideRealTimeFeedback(); // Optional: Hide feedback as it's done
             }
         }
@@ -710,7 +1061,26 @@ namespace WindowsFormsApp1
             }
 
             string displayText = gesture;
-            var match = _gestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+            
+            // Check active app for gesture name
+            string appPath = GetActiveProcessPath();
+            GestureMap match = null;
+
+            if (!string.IsNullOrEmpty(appPath))
+            {
+                var appProfile = _appProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && appPath.Equals(p.AppPath, StringComparison.OrdinalIgnoreCase));
+                if (appProfile != null)
+                {
+                    match = appProfile.Gestures.FirstOrDefault(m => m.Gesture == gesture);
+                }
+            }
+
+            // Fallback to global
+            if (match == null)
+            {
+                match = _gestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+            }
+
             if (match != null && !string.IsNullOrEmpty(match.Name))
             {
                 displayText += " " + match.Name;
@@ -752,7 +1122,29 @@ namespace WindowsFormsApp1
 
         private void ExecuteGesture(string gesture)
         {
-            var map = _gestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+            // 1. Check Active App
+            string appPath = GetActiveProcessPath();
+            GestureMap map = null;
+
+            if (!string.IsNullOrEmpty(appPath))
+            {
+                var appProfile = _appProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && appPath.Equals(p.AppPath, StringComparison.OrdinalIgnoreCase));
+                if (appProfile != null)
+                {
+                    map = appProfile.Gestures.FirstOrDefault(m => m.Gesture == gesture);
+                }
+            }
+
+            // 2. Fallback to Global
+            if (map == null)
+            {
+                var globalProfile = _appProfiles.FirstOrDefault(p => string.IsNullOrEmpty(p.AppPath));
+                if (globalProfile != null)
+                {
+                    map = globalProfile.Gestures.FirstOrDefault(m => m.Gesture == gesture);
+                }
+            }
+
             if (map != null)
             {
                 if (!string.IsNullOrEmpty(map.KeyBinding))
@@ -785,5 +1177,12 @@ namespace WindowsFormsApp1
         
         [DisplayName("キー割り当て")]
         public string KeyBinding { get; set; }
+    }
+    
+    public class AppProfile
+    {
+        public string AppPath { get; set; } // Null or Empty for Global
+        public string AppName { get; set; }
+        public List<GestureMap> Gestures { get; set; } = new List<GestureMap>();
     }
 }
