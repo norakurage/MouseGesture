@@ -216,6 +216,14 @@ namespace WindowsFormsApp1
             dgv.EditingControlShowing += DgvGestures_EditingControlShowing;
             dgv.MouseDown += EndEditOnMouseDown;
 
+            dgv.DataBindingComplete += (s, e) =>
+            {
+                if (dgv.Columns["Gesture"] != null) dgv.Columns["Gesture"].ReadOnly = true;
+                if (dgv.Columns["KeyBinding"] != null) dgv.Columns["KeyBinding"].ReadOnly = true;
+                // Ensure Name is editable if needed, though default is typically false if whole row isn't readonly
+                // But generally only set ReadOnly=true for specific columns
+            };
+
             if (dgv.Columns["Delete"] == null)
             {
                 DataGridViewButtonColumn btn = new DataGridViewButtonColumn();
@@ -1134,12 +1142,67 @@ namespace WindowsFormsApp1
 
         private void UpdateGestureLabel(string text)
         {
+            if (this.IsDisposed) return;
+
+            Action updateAction = () =>
+            {
+                lblGesture.Text = text;
+
+                // Styling based on content to make it more visible
+                if (text.Contains("キーを押してください") || 
+                    text.Contains("記録中"))
+                {
+                    // Action required / Active recording: Orange-Red Background
+                    lblGesture.BackColor = Color.FromArgb(255, 69, 0); 
+                    lblGesture.ForeColor = Color.White;
+                }
+                else if (text.Contains("記録完了") || text.Contains("割り当てました"))
+                {
+                    // Success: Green Background
+                    lblGesture.BackColor = Color.SeaGreen;
+                    lblGesture.ForeColor = Color.White;
+                }
+                else if (string.IsNullOrEmpty(text))
+                {
+                    lblGesture.BackColor = Color.Transparent;
+                }
+                else
+                {
+                    // Info / Cancel: Dark Background
+                    lblGesture.BackColor = Color.FromArgb(45, 45, 48);
+                    lblGesture.ForeColor = Color.White;
+                }
+
+                if (!string.IsNullOrEmpty(text))
+                {
+                    // Center the label on the form
+                    lblGesture.AutoSize = true;
+                    // Force layout measurement
+                    Size preferredSize = lblGesture.GetPreferredSize(new Size(this.ClientSize.Width, 0));
+                    
+                    int x = (this.ClientSize.Width - preferredSize.Width) / 2;
+                    int y = (this.ClientSize.Height - preferredSize.Height) / 2;
+                    
+                    // Show slightly above center for better visibility
+                    y -= 20; 
+                    if (y < 0) y = 0;
+                    
+                    lblGesture.Location = new Point(x, y);
+                    lblGesture.Visible = true;
+                    lblGesture.BringToFront();
+                }
+                else
+                {
+                    lblGesture.Visible = false;
+                }
+            };
+
             try
             {
                 if (lblGesture.InvokeRequired)
-                    lblGesture.BeginInvoke(new Action(() => lblGesture.Text = text));
+                    lblGesture.BeginInvoke(updateAction);
                 else
-                    lblGesture.Text = text;
+                    updateAction();
             }
             catch (Exception)
             {
