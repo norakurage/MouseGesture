@@ -51,13 +51,19 @@ namespace WindowsFormsApp1
         
         // UI Controls - App Tab
         private ComboBox _cmbApps;
-        private Button _btnAddApplication;
         private Button _btnRemoveApp;
         private DataGridView _dgvAppGestures;
         private Label _lblAppHint;
 
         [DllImport("user32.dll")]
+        private static extern IntPtr WindowFromPoint(Point p);
+
+        [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
+
+        // Window Selection
+        private Button _btnSelectWindow;
+        private bool _isSelectingWindow = false;
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
@@ -164,15 +170,15 @@ namespace WindowsFormsApp1
             _cmbApps.DropDownStyle = ComboBoxStyle.DropDownList;
             _cmbApps.SelectedIndexChanged += CmbApps_SelectedIndexChanged;
             
-            _btnAddApplication = new Button();
-            _btnAddApplication.Text = "アプリ追加";
-            _btnAddApplication.Location = new Point(290, 7);
-            _btnAddApplication.Size = new Size(80, 25);
-            _btnAddApplication.FlatStyle = FlatStyle.Flat;
-            _btnAddApplication.BackColor = Color.FromArgb(0, 122, 204);
-            _btnAddApplication.ForeColor = Color.White;
-            _btnAddApplication.Click += BtnAddApplication_Click;
-            
+            _btnSelectWindow = new Button();
+            _btnSelectWindow.Text = "アプリ追加";
+            _btnSelectWindow.Location = new Point(290, 7);
+            _btnSelectWindow.Size = new Size(80, 25);
+            _btnSelectWindow.FlatStyle = FlatStyle.Flat;
+            _btnSelectWindow.BackColor = Color.FromArgb(0, 122, 204);
+            _btnSelectWindow.ForeColor = Color.White;
+            _btnSelectWindow.Click += BtnSelectWindow_Click;
+
             _btnRemoveApp = new Button();
             _btnRemoveApp.Text = "削除";
             _btnRemoveApp.Location = new Point(380, 7);
@@ -184,7 +190,7 @@ namespace WindowsFormsApp1
 
             panelTop.Controls.Add(_lblAppHint);
             panelTop.Controls.Add(_cmbApps);
-            panelTop.Controls.Add(_btnAddApplication);
+            panelTop.Controls.Add(_btnSelectWindow);
             panelTop.Controls.Add(_btnRemoveApp);
             
             _dgvAppGestures = new DataGridView();
@@ -335,31 +341,7 @@ namespace WindowsFormsApp1
             _cmbApps.DisplayMember = "AppName";
         }
 
-        private void BtnAddApplication_Click(object sender, EventArgs e)
-        {
-            using (OpenFileDialog ofd = new OpenFileDialog())
-            {
-                ofd.Filter = "Executable files (*.exe)|*.exe";
-                if (ofd.ShowDialog() == DialogResult.OK)
-                {
-                    string path = ofd.FileName;
-                    if (_appProfiles.Any(p => p.AppPath != null && p.AppPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        MessageBox.Show("このアプリは既に追加されています。");
-                        return;
-                    }
 
-                    var newProfile = new AppProfile 
-                    { 
-                        AppPath = path, 
-                        AppName = Path.GetFileNameWithoutExtension(path) 
-                    };
-                    _appProfiles.Add(newProfile);
-                    RefreshAppList();
-                    _cmbApps.SelectedItem = newProfile;
-                }
-            }
-        }
 
         private void BtnRemoveApp_Click(object sender, EventArgs e)
         {
@@ -395,6 +377,21 @@ namespace WindowsFormsApp1
                 foreach(var g in profile.Gestures) _appGestureMaps.Add(g);
                 
                 _dgvAppGestures.Refresh();
+            }
+        }
+
+        private void BtnSelectWindow_Click(object sender, EventArgs e)
+        {
+            _isSelectingWindow = !_isSelectingWindow;
+            if (_isSelectingWindow)
+            {
+                UpdateGestureLabel("このウィンドウ以外の対象ウィンドウをクリックしてください...");
+                _btnSelectWindow.BackColor = Color.OrangeRed;
+            }
+            else
+            {
+                UpdateGestureLabel("");
+                _btnSelectWindow.BackColor = Color.FromArgb(0, 122, 204);
             }
         }
 
@@ -971,6 +968,76 @@ namespace WindowsFormsApp1
 
         private void OnLeftButtonDown(object sender, MouseHookEventArgs e)
         {
+            if (_isSelectingWindow)
+            {
+                // Handle Window Selection
+                IntPtr hWnd = WindowFromPoint(new Point(e.Point.X, e.Point.Y));
+                if (hWnd != IntPtr.Zero)
+                {
+                    // Get root window or foreground? Usually need PID.
+                    GetWindowThreadProcessId(hWnd, out uint processId);
+                    
+                    IntPtr hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+                    if (hProcess != IntPtr.Zero)
+                    {
+                        try
+                        {
+                            StringBuilder buffer = new StringBuilder(1024);
+                            uint size = (uint)buffer.Capacity;
+                            if (QueryFullProcessImageName(hProcess, 0, buffer, ref size))
+                            {
+                                string path = buffer.ToString();
+                                
+                                // Check if it's our own app
+                                int currentPid = Process.GetCurrentProcess().Id;
+                                if (processId == currentPid)
+                                {
+                                    // Ignore clicks on self for selection (or maybe allow?)
+                                    // Usually better to ignore or handle gracefully
+                                }
+                                else
+                                {
+                                    this.Invoke(new Action(() => 
+                                    {
+                                        if (_appProfiles.Any(p => p.AppPath != null && p.AppPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
+                                        {
+                                            MessageBox.Show("このアプリは既に追加されています。");
+                                        }
+                                        else
+                                        {
+                                            var newProfile = new AppProfile 
+                                            { 
+                                                AppPath = path, 
+                                                AppName = Path.GetFileNameWithoutExtension(path) 
+                                            };
+                                            _appProfiles.Add(newProfile);
+                                            RefreshAppList();
+                                            _cmbApps.SelectedItem = newProfile;
+                                            UpdateGestureLabel($"アプリ '{newProfile.AppName}' を追加しました。");
+                                        }
+                                        
+                                        // Reset State
+                                        _isSelectingWindow = false;
+                                        _btnSelectWindow.BackColor = Color.FromArgb(0, 122, 204);
+                                    }));
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            this.Invoke(new Action(() => MessageBox.Show($"アプリ情報の取得に失敗しました: {ex.Message}")));
+                        }
+                        finally
+                        {
+                            CloseHandle(hProcess);
+                        }
+                    }
+                }
+                
+                e.Handled = true; // Consume the click
+                return;
+            }
+
             if (!_isRightButtonDown) return;
             AddClickGesture("Left", e);
         }
