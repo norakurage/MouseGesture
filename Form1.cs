@@ -783,6 +783,8 @@ namespace WindowsFormsApp1
             }
             else
             {
+                if (_isListeningForKey) return;
+
                 if (_gestureExecuted)
                 {
                     // Do nothing if already executed
@@ -952,6 +954,8 @@ namespace WindowsFormsApp1
                 UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
 
                 // Immediate execution logic
+                if (_isRecordingGesture || _isListeningForKey) return;
+
                 var map = FindGestureMap(currentGesture);
                 if (map != null)
                 {
@@ -1070,8 +1074,8 @@ namespace WindowsFormsApp1
             e.Handled = true;
 
             // Immediate execution logic (Default now)
-            // Skip execution if recording
-            if (_isRecordingGesture) return;
+            // Skip execution if recording or listening for key
+            if (_isRecordingGesture || _isListeningForKey) return;
 
             GestureMap map = null;
             if (!_isRecordingGesture)
