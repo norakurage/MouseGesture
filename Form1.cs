@@ -55,29 +55,9 @@ namespace WindowsFormsApp1
         private DataGridView _dgvAppGestures;
         private Label _lblAppHint;
 
-        [DllImport("user32.dll")]
-        private static extern IntPtr WindowFromPoint(Point p);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetForegroundWindow();
-
         // Window Selection
         private Button _btnSelectWindow;
         private bool _isSelectingWindow = false;
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-        [DllImport("kernel32.dll")]
-        public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
-
-        [DllImport("kernel32.dll")]
-        public static extern bool CloseHandle(IntPtr hObject);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags, StringBuilder lpExeName, ref uint lpdwSize);
-
-        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 
         // Editing State
         private int _editingRowIndex = -1;
@@ -806,26 +786,26 @@ namespace WindowsFormsApp1
         {
             try
             {
-                IntPtr hWnd = GetForegroundWindow();
+                IntPtr hWnd = NativeMethods.GetForegroundWindow();
                 if (hWnd == IntPtr.Zero) return null;
 
-                GetWindowThreadProcessId(hWnd, out uint processId);
+                NativeMethods.GetWindowThreadProcessId(hWnd, out uint processId);
                 
-                IntPtr hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+                IntPtr hProcess = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
                 if (hProcess != IntPtr.Zero)
                 {
                     try
                     {
                         StringBuilder buffer = new StringBuilder(1024);
                         uint size = (uint)buffer.Capacity;
-                        if (QueryFullProcessImageName(hProcess, 0, buffer, ref size))
+                        if (NativeMethods.QueryFullProcessImageName(hProcess, 0, buffer, ref size))
                         {
                             return buffer.ToString();
                         }
                     }
                     finally
                     {
-                        CloseHandle(hProcess);
+                        NativeMethods.CloseHandle(hProcess);
                     }
                 }
                 
@@ -975,20 +955,20 @@ namespace WindowsFormsApp1
             if (_isSelectingWindow)
             {
                 // Handle Window Selection
-                IntPtr hWnd = WindowFromPoint(new Point(e.Point.X, e.Point.Y));
+                IntPtr hWnd = NativeMethods.WindowFromPoint(new Point(e.Point.X, e.Point.Y));
                 if (hWnd != IntPtr.Zero)
                 {
                     // Get root window or foreground? Usually need PID.
-                    GetWindowThreadProcessId(hWnd, out uint processId);
+                    NativeMethods.GetWindowThreadProcessId(hWnd, out uint processId);
                     
-                    IntPtr hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+                    IntPtr hProcess = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
                     if (hProcess != IntPtr.Zero)
                     {
                         try
                         {
                             StringBuilder buffer = new StringBuilder(1024);
                             uint size = (uint)buffer.Capacity;
-                            if (QueryFullProcessImageName(hProcess, 0, buffer, ref size))
+                            if (NativeMethods.QueryFullProcessImageName(hProcess, 0, buffer, ref size))
                             {
                                 string path = buffer.ToString();
                                 
@@ -1033,7 +1013,7 @@ namespace WindowsFormsApp1
                         }
                         finally
                         {
-                            CloseHandle(hProcess);
+                            NativeMethods.CloseHandle(hProcess);
                         }
                     }
                 }
@@ -1321,22 +1301,5 @@ namespace WindowsFormsApp1
         }
     }
 
-    public class GestureMap
-    {
-        [DisplayName("名前")]
-        public string Name { get; set; }
-        
-        [DisplayName("ジェスチャー")]
-        public string Gesture { get; set; }
-        
-        [DisplayName("キー割り当て")]
-        public string KeyBinding { get; set; }
-    }
-    
-    public class AppProfile
-    {
-        public string AppPath { get; set; } // Null or Empty for Global
-        public string AppName { get; set; }
-        public List<GestureMap> Gestures { get; set; } = new List<GestureMap>();
-    }
+
 }
