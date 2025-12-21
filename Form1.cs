@@ -38,6 +38,7 @@ namespace WindowsFormsApp1
 
         // Immediate Execution
         private bool _gestureExecuted = false;
+        private Timer _feedbackHideTimer;
 
         // App Profiles
         private List<AppProfile> _appProfiles = new List<AppProfile>();
@@ -91,6 +92,15 @@ namespace WindowsFormsApp1
             _mouseHook.MouseMove += OnMouseMove;
             _mouseHook.MouseWheel += OnMouseWheel;
             _mouseHook.Start();
+
+            // Feedback Timer
+            _feedbackHideTimer = new Timer();
+            _feedbackHideTimer.Interval = 750; // 0.75 seconds delay
+            _feedbackHideTimer.Tick += (s, args) => 
+            {
+                _feedbackHideTimer.Stop();
+                HideRealTimeFeedback();
+            };
 
             // Setup Global Grid
             SetupGridProperties(dgvGestures);
@@ -718,6 +728,12 @@ namespace WindowsFormsApp1
             _startPoint = e.Point;
             _gestureDirections.Clear();
             
+            _gestureDirections.Clear();
+
+            // Reset feedback state for new gesture
+            _feedbackHideTimer?.Stop();
+            HideRealTimeFeedback();
+            
             UpdateRealTimeFeedback("", new Point(e.Point.X, e.Point.Y));
             
             e.Handled = true;
@@ -726,7 +742,12 @@ namespace WindowsFormsApp1
         private void OnRightButtonUp(object sender, MouseHookEventArgs e)
         {
             _isRightButtonDown = false;
-            HideRealTimeFeedback();
+            
+            // Only hide feedback if we're not waiting for an immediate gesture feedback to expire
+            if (_feedbackHideTimer == null || !_feedbackHideTimer.Enabled)
+            {
+                HideRealTimeFeedback();
+            }
             
             string finalGesture = string.Join("", _gestureDirections);
             e.Handled = true;
@@ -943,7 +964,10 @@ namespace WindowsFormsApp1
                     _gestureExecuted = true;
                     _gestureDirections.Clear();
                     // UpdateGestureLabel($"即時実行: {currentGesture}");
-                    HideRealTimeFeedback();
+                    
+                    // Show feedback for a while then hide
+                    _feedbackHideTimer.Stop();
+                    _feedbackHideTimer.Start();
                 }
             }
             
@@ -1023,13 +1047,13 @@ namespace WindowsFormsApp1
             }
 
             if (!_isRightButtonDown) return;
-            AddClickGesture("Left", e);
+            AddClickGesture("L", e);
         }
 
         private void OnMiddleButtonDown(object sender, MouseHookEventArgs e)
         {
             if (!_isRightButtonDown) return;
-            AddClickGesture("Mid", e);
+            AddClickGesture("M", e);
         }
 
         private void OnXButtonDown(object sender, MouseHookEventArgs e)
@@ -1070,7 +1094,10 @@ namespace WindowsFormsApp1
                 _gestureDirections.Clear();
                 _startPoint = e.Point; // Reset start point for potential future moves
                 // UpdateGestureLabel($"即時実行: {currentGesture}");
-                HideRealTimeFeedback(); // Optional: Hide feedback as it's done
+                
+                // Show feedback for a while then hide
+                _feedbackHideTimer.Stop();
+                _feedbackHideTimer.Start();
             }
         }
 
