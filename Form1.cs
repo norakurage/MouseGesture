@@ -31,6 +31,8 @@ namespace WindowsFormsApp1
 
         // UI Controls
         private Button _btnAddGesture;
+        private StatusStrip _statusStrip;
+        private ToolStripStatusLabel _statusLabel;
         
         // Real-time feedback
         private Form _feedbackForm;
@@ -196,8 +198,20 @@ namespace WindowsFormsApp1
             this.Controls.Add(_tabControl);
             
             // Adjust Label Logic
-            lblGesture.Parent = this; // Ensure it stays on top or outside tabs
-            lblGesture.BringToFront();
+            lblGesture.Visible = false; // Hide old label
+            
+            // Initialize StatusStrip
+            _statusStrip = new StatusStrip();
+            _statusLabel = new ToolStripStatusLabel();
+            _statusStrip.Items.Add(_statusLabel);
+            _statusStrip.Dock = DockStyle.Bottom;
+            _statusStrip.SizingGrip = false;
+            _statusLabel.Spring = true;
+            _statusLabel.TextAlign = ContentAlignment.MiddleLeft;
+            
+            this.Controls.Add(_statusStrip);
+            _statusStrip.SendToBack(); // Docking priority: Bottom of Z-Order dock first.
+            _tabControl.BringToFront(); // Fill takes remaining space.
             
             // Populate App Combo
             RefreshAppList();
@@ -508,6 +522,13 @@ namespace WindowsFormsApp1
 
             // Label
             lblGesture.ForeColor = Color.White;
+
+            // StatusStrip
+            if (_statusStrip != null)
+            {
+                _statusStrip.BackColor = Color.FromArgb(45, 45, 48);
+                _statusStrip.ForeColor = Color.White;
+            }
             
             // Adjust buttons if needed
              if (_btnAddGesture != null && _tabGlobal != null)
@@ -1196,61 +1217,46 @@ namespace WindowsFormsApp1
 
             Action updateAction = () =>
             {
-                lblGesture.Text = text;
+                if (_statusLabel != null)
+                {
+                    _statusLabel.Text = text;
+                }
 
                 // Styling based on content to make it more visible
-                if (text.Contains("キーを押してください") || 
-                    text.Contains("記録中"))
+                if (_statusStrip != null)
                 {
-                    // Action required / Active recording: Orange-Red Background
-                    lblGesture.BackColor = Color.FromArgb(255, 69, 0); 
-                    lblGesture.ForeColor = Color.White;
-                }
-                else if (text.Contains("記録完了") || text.Contains("割り当てました"))
-                {
-                    // Success: Green Background
-                    lblGesture.BackColor = Color.SeaGreen;
-                    lblGesture.ForeColor = Color.White;
-                }
-                else if (string.IsNullOrEmpty(text))
-                {
-                    lblGesture.BackColor = Color.Transparent;
-                }
-                else
-                {
-                    // Info / Cancel: Dark Background
-                    lblGesture.BackColor = Color.FromArgb(45, 45, 48);
-                    lblGesture.ForeColor = Color.White;
-                }
-
-                if (!string.IsNullOrEmpty(text))
-                {
-                    // Center the label on the form
-                    lblGesture.AutoSize = true;
-                    // Force layout measurement
-                    Size preferredSize = lblGesture.GetPreferredSize(new Size(this.ClientSize.Width, 0));
-                    
-                    int x = (this.ClientSize.Width - preferredSize.Width) / 2;
-                    int y = (this.ClientSize.Height - preferredSize.Height) / 2;
-                    
-                    // Show slightly above center for better visibility
-                    y -= 20; 
-                    if (y < 0) y = 0;
-                    
-                    lblGesture.Location = new Point(x, y);
-                    lblGesture.Visible = true;
-                    lblGesture.BringToFront();
-                }
-                else
-                {
-                    lblGesture.Visible = false;
+                    if (text.Contains("キーを押してください") || 
+                        text.Contains("記録中"))
+                    {
+                        // Action required / Active recording: Orange-Red Background
+                        _statusStrip.BackColor = Color.FromArgb(255, 69, 0); 
+                        if (_statusLabel != null) _statusLabel.ForeColor = Color.White;
+                    }
+                    else if (text.Contains("記録完了") || text.Contains("割り当てました"))
+                    {
+                        // Success: Green Background
+                        _statusStrip.BackColor = Color.SeaGreen;
+                        if (_statusLabel != null) _statusLabel.ForeColor = Color.White;
+                    }
+                    else if (string.IsNullOrEmpty(text))
+                    {
+                        // Default theme color
+                        _statusStrip.BackColor = Color.FromArgb(45, 45, 48);
+                        if (_statusLabel != null) _statusLabel.ForeColor = Color.White;
+                    }
+                    else
+                    {
+                        // Info / Cancel: Dark Background
+                        _statusStrip.BackColor = Color.FromArgb(45, 45, 48);
+                         if (_statusLabel != null) _statusLabel.ForeColor = Color.White;
+                    }
                 }
             };
 
             try
             {
-                if (lblGesture.InvokeRequired)
-                    lblGesture.BeginInvoke(updateAction);
+                if (_statusStrip != null && _statusStrip.InvokeRequired)
+                    _statusStrip.BeginInvoke(updateAction);
                 else
                     updateAction();
             }
