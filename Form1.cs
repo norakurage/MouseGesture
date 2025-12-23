@@ -1292,17 +1292,22 @@ namespace WindowsFormsApp1
             GestureMap map = null;
             if (appProfile != null)
             {
-                map = appProfile.Gestures.FirstOrDefault(m => m.Gesture == gesture);
+                // Check if this profile is currently being edited/viewed in the UI
+                if (_currentAppProfile != null && appProfile == _currentAppProfile)
+                {
+                    map = _appGestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+                }
+                else
+                {
+                    map = appProfile.Gestures.FirstOrDefault(m => m.Gesture == gesture);
+                }
             }
 
             // Fallback to Global
             if (map == null)
             {
-                var globalProfile = _appProfiles.FirstOrDefault(p => string.IsNullOrEmpty(p.AppPath));
-                if (globalProfile != null)
-                {
-                    map = globalProfile.Gestures.FirstOrDefault(m => m.Gesture == gesture);
-                }
+                // Always use the live BindingList for global gestures
+                map = _gestureMaps.FirstOrDefault(m => m.Gesture == gesture);
             }
 
             return map;
