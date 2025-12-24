@@ -385,18 +385,29 @@ namespace WindowsFormsApp1
             }
         }
 
-        private void BtnSelectWindow_Click(object sender, EventArgs e)
+        private void StopWindowSelection()
         {
-            _isSelectingWindow = !_isSelectingWindow;
             if (_isSelectingWindow)
             {
-                UpdateGestureLabel("このウィンドウ以外の対象ウィンドウをクリックしてください...");
-                _btnSelectWindow.BackColor = Color.OrangeRed;
+                _isSelectingWindow = false;
+                _btnSelectWindow.Text = "アプリ追加";
+                _btnSelectWindow.BackColor = Color.FromArgb(0, 122, 204);
+                UpdateGestureLabel("キャンセルしました。");
+            }
+        }
+
+        private void BtnSelectWindow_Click(object sender, EventArgs e)
+        {
+            if (_isSelectingWindow)
+            {
+                StopWindowSelection();
             }
             else
             {
-                UpdateGestureLabel("");
-                _btnSelectWindow.BackColor = Color.FromArgb(0, 122, 204);
+                _isSelectingWindow = true;
+                _btnSelectWindow.Text = "キャンセル";
+                _btnSelectWindow.BackColor = Color.OrangeRed;
+                UpdateGestureLabel("このウィンドウ以外の対象ウィンドウをクリックしてください... (右クリックでキャンセル)");
             }
         }
 
@@ -624,19 +635,62 @@ namespace WindowsFormsApp1
             if (headerText == "ジェスチャー") // Gesture
             {
                 _isRecordingGesture = true;
-                UpdateGestureLabel($"行 {e.RowIndex + 1} のジェスチャーを記録中...");
+                UpdateGestureLabel($"行 {e.RowIndex + 1} のジェスチャーを記録中... (右クリックでキャンセル)");
                 dgv.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.DarkRed;
             }
             else if (headerText == "キー割り当て") // KeyBinding
             {
                 _isListeningForKey = true;
-                UpdateGestureLabel($"行 {e.RowIndex + 1} のキーを押してください...");
+                UpdateGestureLabel($"行 {e.RowIndex + 1} のキーを押してください... (右クリックでキャンセル)");
                 dgv.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.DarkBlue;
+            }
+        }
+
+        private void CancelEditingMode()
+        {
+            if (_isRecordingGesture || _isListeningForKey)
+            {
+                if (_editingGrid != null && _editingRowIndex >= 0 && _editingRowIndex < _editingGrid.Rows.Count)
+                {
+                    // Restore colors
+                    if (_isRecordingGesture)
+                    {
+                        foreach (DataGridViewColumn col in _editingGrid.Columns)
+                        {
+                            if (col.HeaderText == "ジェスチャー")
+                            {
+                                _editingGrid.Rows[_editingRowIndex].Cells[col.Index].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
+                                break;
+                            }
+                        }
+                    }
+                    if (_isListeningForKey)
+                    {
+                        foreach (DataGridViewColumn col in _editingGrid.Columns)
+                        {
+                            if (col.HeaderText == "キー割り当て")
+                            {
+                                _editingGrid.Rows[_editingRowIndex].Cells[col.Index].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
+                                break;
+                            }
+                        }
+                    }
+                    _editingGrid.Refresh();
+                }
+
+                _isRecordingGesture = false;
+                _isListeningForKey = false;
+                _editingRowIndex = -1;
+                _editingGrid = null;
+                _editingList = null;
+                UpdateGestureLabel("キャンセルしました。");
             }
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
+            // ESC key cancellation removed to allow ESC registration and unify on Right-Click cancel
+
             if (_isListeningForKey && _editingRowIndex >= 0 && _editingList != null && _editingRowIndex < _editingList.Count)
             {
                 Keys keyCode = keyData & Keys.KeyCode;
@@ -779,54 +833,68 @@ namespace WindowsFormsApp1
             string finalGesture = string.Join("", _gestureDirections);
             e.Handled = true;
 
+            // 1. Window Selection Cancel
+            if (_isSelectingWindow)
+            {
+                this.Invoke(new Action(() => StopWindowSelection()));
+                return;
+            }
+
+            // 2. Gesture Recording
             if (_isRecordingGesture && _editingRowIndex >= 0 && _editingList != null && _editingRowIndex < _editingList.Count)
             {
                 if (!string.IsNullOrEmpty(finalGesture))
                 {
                     _editingList[_editingRowIndex].Gesture = finalGesture;
                     UpdateGestureLabel($"記録完了: {finalGesture}");
+                    
+                    // Reset UI colors manually here or call CancelEditingMode to cleanup?
+                    // CancelEditingMode clears flags, so we should do manual cleanup then clear flags effectively.
+                    // Or efficient way:
+                    if (_editingGrid != null)
+                    {
+                        foreach (DataGridViewColumn col in _editingGrid.Columns)
+                        {
+                            if (col.HeaderText == "ジェスチャー")
+                            {
+                                _editingGrid.Rows[_editingRowIndex].Cells[col.Index].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
+                                break;
+                            }
+                        }
+                        _editingGrid.Refresh();
+                    }
+                    _isRecordingGesture = false;
+                    _editingRowIndex = -1;
+                    _editingGrid = null;
+                    _editingList = null;
                 }
                 else
                 {
-                    UpdateGestureLabel("記録キャンセル");
+                    // Empty gesture -> Cancel
+                    this.Invoke(new Action(() => CancelEditingMode()));
                 }
-                
-                if (_editingGrid != null)
-                {
-                    foreach (DataGridViewColumn col in _editingGrid.Columns)
-                    {
-                        if (col.HeaderText == "ジェスチャー")
-                        {
-                            _editingGrid.Rows[_editingRowIndex].Cells[col.Index].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
-                            break;
-                        }
-                    }
-                    _editingGrid.Refresh();
-                }
+                return;
+            }
 
-                _isRecordingGesture = false;
-                _editingRowIndex = -1;
-                _editingGrid = null;
-                _editingList = null;
+            // 3. Key Listening Cancel
+            if (_isListeningForKey)
+            {
+                this.Invoke(new Action(() => CancelEditingMode()));
+                return;
+            }
+
+            // 4. Normal Execution
+            if (_gestureExecuted)
+            {
+                // Do nothing if already executed
+            }
+            else if (!string.IsNullOrEmpty(finalGesture))
+            {
+                ExecuteGesture(finalGesture);
             }
             else
             {
-                if (_isListeningForKey) return;
-
-                if (_gestureExecuted)
-                {
-                    // Do nothing if already executed
-                }
-                else if (!string.IsNullOrEmpty(finalGesture))
-                {
-                    // UpdateGestureLabel($"ジェスチャー: {finalGesture}");
-                    ExecuteGesture(finalGesture);
-                }
-                else
-                {
-                    SendRightClick(e.Point);
-                    // UpdateGestureLabel("右クリック");
-                }
+                SendRightClick(e.Point);
             }
         }
 
