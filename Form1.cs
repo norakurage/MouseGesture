@@ -69,6 +69,7 @@ namespace WindowsFormsApp1
         private bool _isListeningForKey = false;
         private DataGridView _editingGrid; // Track which grid is editing
         private BindingList<GestureMap> _editingList; // Track which list is being edited
+        private bool _isMessageBoxShowing = false; // Prevent multiple popups
 
         public Form1()
 
@@ -390,7 +391,6 @@ namespace WindowsFormsApp1
             if (_isSelectingWindow)
             {
                 _isSelectingWindow = false;
-                _btnSelectWindow.Text = "アプリ追加";
                 _btnSelectWindow.BackColor = Color.FromArgb(0, 122, 204);
                 UpdateGestureLabel("キャンセルしました。");
             }
@@ -398,17 +398,11 @@ namespace WindowsFormsApp1
 
         private void BtnSelectWindow_Click(object sender, EventArgs e)
         {
-            if (_isSelectingWindow)
-            {
-                StopWindowSelection();
-            }
-            else
-            {
-                _isSelectingWindow = true;
-                _btnSelectWindow.Text = "キャンセル";
-                _btnSelectWindow.BackColor = Color.OrangeRed;
-                UpdateGestureLabel("このウィンドウ以外の対象ウィンドウをクリックしてください... (右クリックでキャンセル)");
-            }
+            if (_isSelectingWindow) return;
+
+            _isSelectingWindow = true;
+            _btnSelectWindow.BackColor = Color.OrangeRed;
+            UpdateGestureLabel("このウィンドウ以外の対象ウィンドウをクリックしてください... (右クリックでキャンセル)");
         }
 
         private void EndEditOnMouseDown(object sender, MouseEventArgs e)
@@ -1095,16 +1089,22 @@ namespace WindowsFormsApp1
                                 int currentPid = Process.GetCurrentProcess().Id;
                                 if (processId == currentPid)
                                 {
-                                    // Ignore clicks on self for selection (or maybe allow?)
-                                    // Usually better to ignore or handle gracefully
+                                    // Allow normal interaction with own app (e.g. clicking Cancel button or MessageBox)
+                                    return;
                                 }
                                 else
                                 {
-                                    this.Invoke(new Action(() => 
+                                    this.BeginInvoke(new Action(() => 
                                     {
                                         if (_appProfiles.Any(p => p.AppPath != null && p.AppPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
                                         {
-                                            MessageBox.Show("このアプリは既に追加されています。");
+                                            if (!_isMessageBoxShowing)
+                                            {
+                                                _isMessageBoxShowing = true;
+                                                MessageBox.Show("このアプリは既に追加されています。");
+                                                _isMessageBoxShowing = false;
+                                                StopWindowSelection();
+                                            }
                                         }
                                         else
                                         {
@@ -1128,7 +1128,7 @@ namespace WindowsFormsApp1
                         }
                         catch (Exception ex)
                         {
-                            this.Invoke(new Action(() => MessageBox.Show($"アプリ情報の取得に失敗しました: {ex.Message}")));
+                            this.BeginInvoke(new Action(() => MessageBox.Show($"アプリ情報の取得に失敗しました: {ex.Message}")));
                         }
                         finally
                         {
