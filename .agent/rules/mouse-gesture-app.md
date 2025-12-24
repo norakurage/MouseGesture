@@ -2,7 +2,12 @@
 trigger: always_on
 ---
 
-編集が完了したら以下のコマンドを実行してアプリの再起動をしてください｡
-1. Get-Process WindowsFormsApp1 -ErrorAction SilentlyContinue | Stop-Process -Force
-2. dotnet build
-3. WindowsFormsApp1\bin\Debug\MouseGesture.exe - ショートカット.lnk"
+編集が完了したら、以下のコマンドを順に実行してアプリを再起動してください。
+
+```powershell
+# 実行中のアプリを強制終了
+Get-Process MouseGesture -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# プロジェクトを明示的にビルド
+dotnet build D:\works\VisualStudio\WindowsFormsApp1\WindowsFormsApp1.csproj `
+&& D:\works\VisualStudio\WindowsFormsApp1\bin\Debug\MouseGesture.exe
