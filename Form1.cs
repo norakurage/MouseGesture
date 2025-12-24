@@ -31,6 +31,7 @@ namespace WindowsFormsApp1
 
         // UI Controls
         private Button _btnAddGesture;
+        private Button _btnAddAppGesture;
         private StatusStrip _statusStrip;
         private ToolStripStatusLabel _statusLabel;
         
@@ -425,8 +426,8 @@ namespace WindowsFormsApp1
         {
             // Add Button (Global)
             _btnAddGesture = new Button();
-            _btnAddGesture.Text = "追加";
-            _btnAddGesture.Size = new Size(100, 35);
+            _btnAddGesture.Text = "ジェスチャーを追加";
+            _btnAddGesture.Size = new Size(180, 35);
             // Will position later or relative
             
             _btnAddGesture.FlatStyle = FlatStyle.Flat;
@@ -439,23 +440,22 @@ namespace WindowsFormsApp1
             _btnAddGesture.Click += BtnAddGesture_Click;
             
             // Add to Global Tab
-            _btnAddGesture.Location = new Point(_tabGlobal.Width - 120, _tabGlobal.Height - 50);
+            _btnAddGesture.Location = new Point(_tabGlobal.Width - 220, _tabGlobal.Height - 50);
             _tabGlobal.Controls.Add(_btnAddGesture);
             _btnAddGesture.BringToFront();
 
-            // Add Button (App) - Create a separate instance or reuse?
-            // Reusing might be tricky if tabs switch. Better create another button for App tab.
-            Button btnAddAppGesture = new Button();
-            btnAddAppGesture.Text = "追加";
-            btnAddAppGesture.Size = new Size(100, 35);
-            btnAddAppGesture.FlatStyle = FlatStyle.Flat;
-            btnAddAppGesture.FlatAppearance.BorderSize = 0;
-            btnAddAppGesture.BackColor = Color.FromArgb(0, 122, 204);
-            btnAddAppGesture.ForeColor = Color.White;
-            btnAddAppGesture.Font = new Font("Meiryo UI", 10, FontStyle.Bold);
-            btnAddAppGesture.Cursor = Cursors.Hand;
-            btnAddAppGesture.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnAddAppGesture.Click += (s, e) => 
+            // Add Button (App)
+            _btnAddAppGesture = new Button();
+            _btnAddAppGesture.Text = "ジェスチャーを追加";
+            _btnAddAppGesture.Size = new Size(180, 35);
+            _btnAddAppGesture.FlatStyle = FlatStyle.Flat;
+            _btnAddAppGesture.FlatAppearance.BorderSize = 0;
+            _btnAddAppGesture.BackColor = Color.FromArgb(0, 122, 204);
+            _btnAddAppGesture.ForeColor = Color.White;
+            _btnAddAppGesture.Font = new Font("Meiryo UI", 10, FontStyle.Bold);
+            _btnAddAppGesture.Cursor = Cursors.Hand;
+            _btnAddAppGesture.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            _btnAddAppGesture.Click += (s, e) => 
             {
                  if (_currentAppProfile == null) 
                  {
@@ -465,12 +465,13 @@ namespace WindowsFormsApp1
                  _appGestureMaps.Add(new GestureMap());
                  if (_dgvAppGestures.Rows.Count > 0)
                      _dgvAppGestures.FirstDisplayedScrollingRowIndex = _dgvAppGestures.Rows.Count - 1;
+                 
+                 UpdateGestureLabel("ジェスチャーフィールドをダブルクリックで追加");
             };
             
-            // Layout is not finalized yet in Initialize, so place it anchored
-            btnAddAppGesture.Location = new Point(400, 300); // Temporary, Anchor will handle it
-            _tabApp.Controls.Add(btnAddAppGesture);
-            btnAddAppGesture.BringToFront();
+            _btnAddAppGesture.Location = new Point(_tabApp.Width - 220, _tabApp.Height - 50);
+            _tabApp.Controls.Add(_btnAddAppGesture);
+            _btnAddAppGesture.BringToFront();
         }
 
         private void BtnAddGesture_Click(object sender, EventArgs e)
@@ -483,6 +484,7 @@ namespace WindowsFormsApp1
                 {
                     dgvGestures.FirstDisplayedScrollingRowIndex = dgvGestures.Rows.Count - 1;
                 }
+                UpdateGestureLabel("ジェスチャーフィールドをダブルクリックで追加");
             }
             else
             {
@@ -533,7 +535,11 @@ namespace WindowsFormsApp1
             // Adjust buttons if needed
              if (_btnAddGesture != null && _tabGlobal != null)
             {
-                 _btnAddGesture.Location = new Point(_tabGlobal.Width - 120, _tabGlobal.Height - 50);
+                 _btnAddGesture.Location = new Point(_tabGlobal.Width - 220, _tabGlobal.Height - 50);
+            }
+             if (_btnAddAppGesture != null && _tabApp != null)
+            {
+                 _btnAddAppGesture.Location = new Point(_tabApp.Width - 220, _tabApp.Height - 50);
             }
         }
 
@@ -1226,7 +1232,7 @@ namespace WindowsFormsApp1
                 if (_statusStrip != null)
                 {
                     if (text.Contains("キーを押してください") || 
-                        text.Contains("記録中"))
+                        text.Contains("記録中") || text.Contains("ダブルクリック"))
                     {
                         // Action required / Active recording: Orange-Red Background
                         _statusStrip.BackColor = Color.FromArgb(255, 69, 0); 
