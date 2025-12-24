@@ -692,7 +692,7 @@ namespace WindowsFormsApp1
 
                 if (!isModifier)
                 {
-                    string readableFormat = GetReadableKeyString(keyData);
+                    string readableFormat = KeyUtils.GetReadableKeyString(keyData);
                     _editingList[_editingRowIndex].KeyBinding = readableFormat;
 
                     if (string.IsNullOrEmpty(_editingList[_editingRowIndex].Name))
@@ -724,77 +724,7 @@ namespace WindowsFormsApp1
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
-        private string GetReadableKeyString(Keys keyData)
-        {
-            List<string> parts = new List<string>();
-            if ((keyData & Keys.Control) == Keys.Control) parts.Add("Ctrl");
-            if ((keyData & Keys.Alt) == Keys.Alt) parts.Add("Alt");
-            if ((keyData & Keys.Shift) == Keys.Shift) parts.Add("Shift");
 
-            Keys keyCode = keyData & Keys.KeyCode;
-            if (keyCode != Keys.ControlKey && keyCode != Keys.ShiftKey && keyCode != Keys.Menu && keyCode != Keys.None)
-            {
-                if (keyCode >= Keys.D0 && keyCode <= Keys.D9)
-                {
-                    parts.Add(keyCode.ToString().Replace("D", ""));
-                }
-                else
-                {
-                    parts.Add(keyCode.ToString());
-                }
-            }
-            
-            return string.Join("+", parts);
-        }
-
-        private string ConvertReadableToSendKeys(string readable)
-        {
-            if (string.IsNullOrEmpty(readable)) return "";
-            
-            if (!readable.Contains("Ctrl") && !readable.Contains("Alt") && !readable.Contains("Shift") && 
-                (readable.Contains("^") || readable.Contains("%") || readable.Contains("{")))
-            {
-                return readable;
-            }
-
-            string result = "";
-            
-            var parts = readable.Split('+').ToList();
-            bool ctrl = parts.Remove("Ctrl");
-            bool alt = parts.Remove("Alt");
-            bool shift = parts.Remove("Shift");
-            
-            if (ctrl) result += "^";
-            if (alt) result += "%";
-            if (shift) result += "+";
-            
-            if (parts.Count > 0)
-            {
-                string key = parts.Last(); 
-                
-                if (key.Length == 1)
-                {
-                    result += key.ToLower();
-                }
-                else
-                {
-                    switch (key.ToUpper())
-                    {
-                        case "ENTER": result += "{ENTER}"; break;
-                        case "RETURN": result += "{ENTER}"; break;
-                        case "TAB": result += "{TAB}"; break;
-                        case "ESCAPE": result += "{ESC}"; break;
-                        case "ESC": result += "{ESC}"; break;
-                        case "BACK": result += "{BACKSPACE}"; break;
-                        case "BACKSPACE": result += "{BACKSPACE}"; break;
-                        case "DELETE": result += "{DELETE}"; break;
-                        default: result += "{" + key.ToUpper() + "}"; break;
-                    }
-                }
-            }
-            
-            return result;
-        }
 
         private void OnRightButtonDown(object sender, MouseHookEventArgs e)
         {
@@ -892,40 +822,7 @@ namespace WindowsFormsApp1
             }
         }
 
-        private string GetActiveProcessPath()
-        {
-            try
-            {
-                IntPtr hWnd = NativeMethods.GetForegroundWindow();
-                if (hWnd == IntPtr.Zero) return null;
 
-                NativeMethods.GetWindowThreadProcessId(hWnd, out uint processId);
-                
-                IntPtr hProcess = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
-                if (hProcess != IntPtr.Zero)
-                {
-                    try
-                    {
-                        StringBuilder buffer = new StringBuilder(1024);
-                        uint size = (uint)buffer.Capacity;
-                        if (NativeMethods.QueryFullProcessImageName(hProcess, 0, buffer, ref size))
-                        {
-                            return buffer.ToString();
-                        }
-                    }
-                    finally
-                    {
-                        NativeMethods.CloseHandle(hProcess);
-                    }
-                }
-                
-                return null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
 
         private void SendRightClick(MousePoint p)
         {
@@ -1074,66 +971,46 @@ namespace WindowsFormsApp1
                     // Get root window or foreground? Usually need PID.
                     NativeMethods.GetWindowThreadProcessId(hWnd, out uint processId);
                     
-                    IntPtr hProcess = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
-                    if (hProcess != IntPtr.Zero)
+                    // Check if it's our own app
+                    int currentPid = Process.GetCurrentProcess().Id;
+                    if (processId == currentPid) return; // Allow normal interaction with own app
+
+                    string path = ProcessUtils.GetProcessPath(processId);
+                    if (path != null)
                     {
-                        try
+                        this.BeginInvoke(new Action(() => 
                         {
-                            StringBuilder buffer = new StringBuilder(1024);
-                            uint size = (uint)buffer.Capacity;
-                            if (NativeMethods.QueryFullProcessImageName(hProcess, 0, buffer, ref size))
+                            if (_appProfiles.Any(p => p.AppPath != null && p.AppPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
                             {
-                                string path = buffer.ToString();
-                                
-                                // Check if it's our own app
-                                int currentPid = Process.GetCurrentProcess().Id;
-                                if (processId == currentPid)
+                                if (!_isMessageBoxShowing)
                                 {
-                                    // Allow normal interaction with own app (e.g. clicking Cancel button or MessageBox)
-                                    return;
-                                }
-                                else
-                                {
-                                    this.BeginInvoke(new Action(() => 
-                                    {
-                                        if (_appProfiles.Any(p => p.AppPath != null && p.AppPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
-                                        {
-                                            if (!_isMessageBoxShowing)
-                                            {
-                                                _isMessageBoxShowing = true;
-                                                MessageBox.Show("このアプリは既に追加されています。");
-                                                _isMessageBoxShowing = false;
-                                                StopWindowSelection();
-                                            }
-                                        }
-                                        else
-                                        {
-                                            var newProfile = new AppProfile 
-                                            { 
-                                                AppPath = path, 
-                                                AppName = Path.GetFileNameWithoutExtension(path) 
-                                            };
-                                            _appProfiles.Add(newProfile);
-                                            RefreshAppList();
-                                            _cmbApps.SelectedItem = newProfile;
-                                            UpdateGestureLabel($"アプリ '{newProfile.AppName}' を追加しました。");
-                                        }
-                                        
-                                        // Reset State
-                                        _isSelectingWindow = false;
-                                        _btnSelectWindow.BackColor = Color.FromArgb(0, 122, 204);
-                                    }));
+                                    _isMessageBoxShowing = true;
+                                    MessageBox.Show("このアプリは既に追加されています。");
+                                    _isMessageBoxShowing = false;
+                                    StopWindowSelection();
                                 }
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            this.BeginInvoke(new Action(() => MessageBox.Show($"アプリ情報の取得に失敗しました: {ex.Message}")));
-                        }
-                        finally
-                        {
-                            NativeMethods.CloseHandle(hProcess);
-                        }
+                            else
+                            {
+                                var newProfile = new AppProfile 
+                                { 
+                                    AppPath = path, 
+                                    AppName = Path.GetFileNameWithoutExtension(path) 
+                                };
+                                _appProfiles.Add(newProfile);
+                                RefreshAppList();
+                                _cmbApps.SelectedItem = newProfile;
+                                UpdateGestureLabel($"アプリ '{newProfile.AppName}' を追加しました。");
+                            }
+                            
+                            // Reset State
+                            _isSelectingWindow = false;
+                            _btnSelectWindow.BackColor = Color.FromArgb(0, 122, 204);
+                        }));
+                    }
+                    else
+                    {
+                        this.BeginInvoke(new Action(() => MessageBox.Show("アプリ情報の取得に失敗しました。")));
                     }
                 }
                 
@@ -1342,7 +1219,7 @@ namespace WindowsFormsApp1
 
         private GestureMap FindGestureMap(string gesture)
         {
-            string appPath = GetActiveProcessPath();
+            string appPath = ProcessUtils.GetActiveProcessPath();
             AppProfile appProfile = null;
 
             if (!string.IsNullOrEmpty(appPath))
@@ -1400,7 +1277,7 @@ namespace WindowsFormsApp1
                     {
                         try
                         {
-                            string sendKeys = ConvertReadableToSendKeys(map.KeyBinding);
+                            string sendKeys = KeyUtils.ConvertReadableToSendKeys(map.KeyBinding);
                             SendKeys.Send(sendKeys);
                         }
                         catch (Exception ex)
