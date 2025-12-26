@@ -21,4 +21,17 @@ namespace WindowsFormsApp1
         public string AppName { get; set; }
         public List<GestureMap> Gestures { get; set; } = new List<GestureMap>();
     }
+
+    public class GroupProfile
+    {
+        public string GroupName { get; set; }
+        public List<string> TargetAppPaths { get; set; } = new List<string>();
+        public List<GestureMap> Gestures { get; set; } = new List<GestureMap>();
+    }
+
+    public class GestureConfig
+    {
+        public List<AppProfile> AppProfiles { get; set; } = new List<AppProfile>();
+        public List<GroupProfile> GroupProfiles { get; set; } = new List<GroupProfile>();
+    }
 }

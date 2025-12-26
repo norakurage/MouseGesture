@@ -48,9 +48,15 @@ namespace WindowsFormsApp1
         private BindingList<GestureMap> _appGestureMaps = new BindingList<GestureMap>();
         private AppProfile _currentAppProfile;
 
+        // Group Profiles
+        private List<GroupProfile> _groupProfiles = new List<GroupProfile>();
+        private BindingList<GestureMap> _groupGestureMaps = new BindingList<GestureMap>();
+        private GroupProfile _currentGroupProfile;
+
         // UI Controls - Tabs
         private TabControl _tabControl;
         private TabPage _tabGlobal;
+        private TabPage _tabGroup;
         private TabPage _tabApp;
         
         // UI Controls - App Tab
@@ -58,6 +64,15 @@ namespace WindowsFormsApp1
         private Button _btnRemoveApp;
         private DataGridView _dgvAppGestures;
         private Label _lblAppHint;
+
+        // UI Controls - Group Tab
+        private ComboBox _cmbGroups;
+        private Button _btnAddGroup;
+        private Button _btnRemoveGroup;
+        private Button _btnEditGroupApps;
+        private DataGridView _dgvGroupGestures;
+        private Label _lblGroupHint;
+        private Button _btnAddGroupGesture;
 
         // Window Selection
         private Button _btnSelectWindow;
@@ -114,11 +129,22 @@ namespace WindowsFormsApp1
             SetupGridProperties(_dgvAppGestures);
             _dgvAppGestures.DataSource = _appGestureMaps;
 
+            // Setup Group Grid
+            if (_dgvGroupGestures != null)
+            {
+                SetupGridProperties(_dgvGroupGestures);
+                _dgvGroupGestures.DataSource = _groupGestureMaps;
+            }
+
             // Handle clicks outside grid to commit edit
             this.MouseDown += EndEditOnMouseDown;
             lblGesture.MouseDown += EndEditOnMouseDown;
+            // Grid handlers are added in SetupGridProperties, but keeping existing explicit ones if they were important
+            // Actually, SetupGridProperties adds them. I will allow them to be added or remove redundancy.
+            // Existing code layout had them. I'll re-add them to be safe and consistent with previous state.
             dgvGestures.MouseDown += EndEditOnMouseDown;
             _dgvAppGestures.MouseDown += EndEditOnMouseDown;
+            if (_dgvGroupGestures != null) _dgvGroupGestures.MouseDown += EndEditOnMouseDown;
             
              // Select first app if available
             if (_cmbApps.Items.Count > 0)
@@ -194,7 +220,73 @@ namespace WindowsFormsApp1
             _tabApp.Controls.Add(_dgvAppGestures);
             _tabApp.Controls.Add(panelTop);
             
+            _tabApp.Controls.Add(_dgvAppGestures);
+            _tabApp.Controls.Add(panelTop);
+
+            // Create Group Tab
+            _tabGroup = new TabPage("グループ設定");
+            _tabGroup.BackColor = Color.FromArgb(30, 30, 30);
+
+            // Setup Group Tab UI
+            Panel panelGroupTop = new Panel();
+            panelGroupTop.Dock = DockStyle.Top;
+            panelGroupTop.Height = 40;
+            panelGroupTop.BackColor = Color.FromArgb(30, 30, 30);
+
+            _lblGroupHint = new Label();
+            _lblGroupHint.Text = "グループ:";
+            _lblGroupHint.ForeColor = Color.White;
+            _lblGroupHint.Location = new Point(10, 12);
+            _lblGroupHint.AutoSize = true;
+
+            _cmbGroups = new ComboBox();
+            _cmbGroups.Location = new Point(80, 8);
+            _cmbGroups.Width = 150;
+            _cmbGroups.DropDownStyle = ComboBoxStyle.DropDownList;
+            _cmbGroups.SelectedIndexChanged += CmbGroups_SelectedIndexChanged;
+
+            _btnAddGroup = new Button();
+            _btnAddGroup.Text = "作成";
+            _btnAddGroup.Location = new Point(240, 7);
+            _btnAddGroup.Size = new Size(50, 25);
+            _btnAddGroup.FlatStyle = FlatStyle.Flat;
+            _btnAddGroup.BackColor = Color.FromArgb(0, 122, 204);
+            _btnAddGroup.ForeColor = Color.White;
+            _btnAddGroup.Click += BtnAddGroup_Click;
+
+            _btnEditGroupApps = new Button();
+            _btnEditGroupApps.Text = "アプリ選択";
+            _btnEditGroupApps.Location = new Point(300, 7);
+            _btnEditGroupApps.Size = new Size(80, 25);
+            _btnEditGroupApps.FlatStyle = FlatStyle.Flat;
+            _btnEditGroupApps.BackColor = Color.FromArgb(45, 45, 48);
+            _btnEditGroupApps.ForeColor = Color.White;
+            _btnEditGroupApps.Click += BtnEditGroupApps_Click;
+
+            _btnRemoveGroup = new Button();
+            _btnRemoveGroup.Text = "削除";
+            _btnRemoveGroup.Location = new Point(390, 7);
+            _btnRemoveGroup.Size = new Size(60, 25);
+            _btnRemoveGroup.FlatStyle = FlatStyle.Flat;
+            _btnRemoveGroup.BackColor = Color.IndianRed;
+            _btnRemoveGroup.ForeColor = Color.White;
+            _btnRemoveGroup.Click += BtnRemoveGroup_Click;
+
+            panelGroupTop.Controls.Add(_lblGroupHint);
+            panelGroupTop.Controls.Add(_cmbGroups);
+            panelGroupTop.Controls.Add(_btnAddGroup);
+            panelGroupTop.Controls.Add(_btnEditGroupApps);
+            panelGroupTop.Controls.Add(_btnRemoveGroup);
+
+            _dgvGroupGestures = new DataGridView();
+            _dgvGroupGestures.Dock = DockStyle.Fill;
+            _dgvGroupGestures.BackgroundColor = Color.FromArgb(30, 30, 30);
+
+            _tabGroup.Controls.Add(_dgvGroupGestures);
+            _tabGroup.Controls.Add(panelGroupTop);
+
             _tabControl.Controls.Add(_tabGlobal);
+            _tabControl.Controls.Add(_tabGroup);
             _tabControl.Controls.Add(_tabApp);
             
             this.Controls.Add(_tabControl);
@@ -217,6 +309,7 @@ namespace WindowsFormsApp1
             
             // Populate App Combo
             RefreshAppList();
+            RefreshGroupList();
         }
 
         private void SetupGridProperties(DataGridView dgv)
@@ -267,13 +360,27 @@ namespace WindowsFormsApp1
                         }
                     }
 
-                    if (rootName == "ArrayOfAppProfile")
+                    if (rootName == "GestureConfig")
+                    {
+                        XmlSerializer serializer = new XmlSerializer(typeof(GestureConfig));
+                        using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Open))
+                        {
+                            var config = (GestureConfig)serializer.Deserialize(fs);
+                            _appProfiles = config.AppProfiles;
+                            if (config.GroupProfiles != null)
+                                _groupProfiles = config.GroupProfiles;
+                            else
+                                _groupProfiles = new List<GroupProfile>();
+                        }
+                    }
+                    else if (rootName == "ArrayOfAppProfile")
                     {
                         XmlSerializer serializer = new XmlSerializer(typeof(List<AppProfile>));
                         using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Open))
                         {
                             _appProfiles = (List<AppProfile>)serializer.Deserialize(fs);
                         }
+                        _groupProfiles = new List<GroupProfile>();
                     }
                     else
                     {
@@ -286,6 +393,7 @@ namespace WindowsFormsApp1
                             _appProfiles.Clear();
                             _appProfiles.Add(new AppProfile { AppName = "Global", Gestures = loadedGestures });
                         }
+                        _groupProfiles = new List<GroupProfile>();
                     }
                 }
             }
@@ -325,10 +433,22 @@ namespace WindowsFormsApp1
                     _currentAppProfile.Gestures = _appGestureMaps.ToList();
                 }
 
-                XmlSerializer serializer = new XmlSerializer(typeof(List<AppProfile>));
+                // Sync Current Group (if selected)
+                if (_currentGroupProfile != null)
+                {
+                    _currentGroupProfile.Gestures = _groupGestureMaps.ToList();
+                }
+
+                GestureConfig config = new GestureConfig
+                {
+                    AppProfiles = _appProfiles,
+                    GroupProfiles = _groupProfiles
+                };
+
+                XmlSerializer serializer = new XmlSerializer(typeof(GestureConfig));
                 using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Create))
                 {
-                    serializer.Serialize(fs, _appProfiles);
+                    serializer.Serialize(fs, config);
                 }
             }
             catch (Exception ex)
@@ -347,6 +467,24 @@ namespace WindowsFormsApp1
             _cmbApps.DisplayMember = "AppName";
         }
 
+        private void RefreshGroupList()
+        {
+            _cmbGroups.Items.Clear();
+            foreach (var group in _groupProfiles)
+            {
+                _cmbGroups.Items.Add(group);
+            }
+            _cmbGroups.DisplayMember = "GroupName";
+            if (_cmbGroups.Items.Count > 0)
+                _cmbGroups.SelectedIndex = 0;
+            else
+            {
+                _currentGroupProfile = null;
+                _groupGestureMaps.Clear();
+                _dgvGroupGestures?.Refresh();
+            }
+        }
+
 
 
         private void BtnRemoveApp_Click(object sender, EventArgs e)
@@ -359,6 +497,7 @@ namespace WindowsFormsApp1
                     RefreshAppList();
                     _currentAppProfile = null;
                     _appGestureMaps.Clear();
+                    SaveGestures();
                 }
             }
         }
@@ -414,6 +553,10 @@ namespace WindowsFormsApp1
             if (_dgvAppGestures != null && _dgvAppGestures.IsCurrentCellInEditMode)
             {
                 _dgvAppGestures.EndEdit();
+            }
+            if (_dgvGroupGestures != null && _dgvGroupGestures.IsCurrentCellInEditMode)
+            {
+                _dgvGroupGestures.EndEdit();
             }
         }
 
@@ -477,6 +620,35 @@ namespace WindowsFormsApp1
             _btnAddAppGesture.Location = new Point(_tabApp.Width - 220, _tabApp.Height - 50);
             _tabApp.Controls.Add(_btnAddAppGesture);
             _btnAddAppGesture.BringToFront();
+
+            // Add Button (Group)
+            _btnAddGroupGesture = new Button();
+            _btnAddGroupGesture.Text = "ジェスチャーを追加";
+            _btnAddGroupGesture.Size = new Size(180, 35);
+            _btnAddGroupGesture.FlatStyle = FlatStyle.Flat;
+            _btnAddGroupGesture.FlatAppearance.BorderSize = 0;
+            _btnAddGroupGesture.BackColor = Color.FromArgb(0, 122, 204);
+            _btnAddGroupGesture.ForeColor = Color.White;
+            _btnAddGroupGesture.Font = new Font("Meiryo UI", 10, FontStyle.Bold);
+            _btnAddGroupGesture.Cursor = Cursors.Hand;
+            _btnAddGroupGesture.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            _btnAddGroupGesture.Click += (s, e) => 
+            {
+                 if (_currentGroupProfile == null) 
+                 {
+                     MessageBox.Show("グループを選択してください。");
+                     return;
+                 }
+                 _groupGestureMaps.Add(new GestureMap());
+                 if (_dgvGroupGestures.Rows.Count > 0)
+                     _dgvGroupGestures.FirstDisplayedScrollingRowIndex = _dgvGroupGestures.Rows.Count - 1;
+                 
+                 UpdateGestureLabel("ジェスチャーフィールドをダブルクリックで追加");
+            };
+            
+            _btnAddGroupGesture.Location = new Point(_tabGroup.Width - 220, _tabGroup.Height - 50);
+            _tabGroup.Controls.Add(_btnAddGroupGesture);
+            _btnAddGroupGesture.BringToFront();
         }
 
         private void BtnAddGesture_Click(object sender, EventArgs e)
@@ -495,6 +667,125 @@ namespace WindowsFormsApp1
             {
                 // Should be handled by the other button, but just in case
             }
+        }
+
+        private void CmbGroups_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (_cmbGroups.SelectedItem is GroupProfile profile)
+            {
+                if (_currentGroupProfile != null)
+                {
+                     _currentGroupProfile.Gestures = _groupGestureMaps.ToList();
+                }
+
+                _currentGroupProfile = profile;
+                _groupGestureMaps.Clear();
+                foreach(var g in profile.Gestures) _groupGestureMaps.Add(g);
+                
+                _dgvGroupGestures.Refresh();
+            }
+        }
+
+        private void BtnAddGroup_Click(object sender, EventArgs e)
+        {
+            using (Form inputForm = new Form())
+            {
+                inputForm.Text = "グループ作成";
+                inputForm.Size = new Size(300, 150);
+                inputForm.StartPosition = FormStartPosition.CenterParent;
+                inputForm.FormBorderStyle = FormBorderStyle.FixedDialog;
+                inputForm.MaximizeBox = false;
+
+                Label lbl = new Label() { Left = 20, Top = 20, Text = "グループ名:" };
+                TextBox txt = new TextBox() { Left = 20, Top = 50, Width = 240 };
+                Button btnOk = new Button() { Text = "OK", Left = 180, Width = 80, Top = 80, DialogResult = DialogResult.OK };
+                
+                inputForm.Controls.Add(lbl);
+                inputForm.Controls.Add(txt);
+                inputForm.Controls.Add(btnOk);
+                inputForm.AcceptButton = btnOk;
+
+                if (inputForm.ShowDialog(this) == DialogResult.OK)
+                {
+                    string name = txt.Text.Trim();
+                    if (!string.IsNullOrEmpty(name))
+                    {
+                         if (_groupProfiles.Any(g => g.GroupName == name)) {
+                             MessageBox.Show("同じ名前のグループが既に存在します。");
+                             return;
+                         }
+                         var newGroup = new GroupProfile { GroupName = name };
+                         _groupProfiles.Add(newGroup);
+                         RefreshGroupList();
+                         _cmbGroups.SelectedItem = newGroup;
+                         SaveGestures();
+                    }
+                }
+            }
+        }
+
+        private void BtnRemoveGroup_Click(object sender, EventArgs e)
+        {
+             if (_cmbGroups.SelectedItem is GroupProfile profile)
+            {
+                if (MessageBox.Show($"グループ '{profile.GroupName}' を削除しますか？", "確認", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                {
+                    _groupProfiles.Remove(profile);
+                    RefreshGroupList();
+                    SaveGestures();
+                }
+            }
+        }
+
+        private void BtnEditGroupApps_Click(object sender, EventArgs e)
+        {
+             if (_currentGroupProfile == null) return;
+
+             using (Form listForm = new Form())
+             {
+                listForm.Text = "アプリ選択";
+                listForm.Size = new Size(400, 400);
+                listForm.StartPosition = FormStartPosition.CenterParent;
+                
+                CheckedListBox chkList = new CheckedListBox();
+                chkList.Dock = DockStyle.Fill;
+                chkList.CheckOnClick = true;
+
+                // List all apps from AppProfiles (except Global)
+                var apps = _appProfiles.Where(p => !string.IsNullOrEmpty(p.AppPath)).ToList();
+                foreach(var app in apps)
+                {
+                    bool isChecked = _currentGroupProfile.TargetAppPaths.Contains(app.AppPath);
+                    chkList.Items.Add(app.AppName + " (" + Path.GetFileName(app.AppPath) + ")", isChecked); 
+                    // Store AppPath in Tag? Tag is not easily available in Items.Add
+                    // Since we iterate in same order, we can rely on index matching for the loop below.
+                }
+
+                Panel pnlBottom = new Panel();
+                pnlBottom.Dock = DockStyle.Bottom;
+                pnlBottom.Height = 50;
+
+                Button btnOk = new Button() { Text = "OK", Dock = DockStyle.Right, Width = 80, DialogResult = DialogResult.OK };
+                pnlBottom.Controls.Add(btnOk);
+
+                listForm.Controls.Add(chkList);
+                listForm.Controls.Add(pnlBottom);
+
+                if (listForm.ShowDialog(this) == DialogResult.OK)
+                {
+                    _currentGroupProfile.TargetAppPaths.Clear();
+                    for(int i=0; i<chkList.Items.Count; i++)
+                    {
+                        if (chkList.GetItemChecked(i))
+                        {
+                            // Map back to app.
+                             var app = apps[i]; // Assuming order is preserved
+                             _currentGroupProfile.TargetAppPaths.Add(app.AppPath);
+                        }
+                    }
+                    SaveGestures();
+                }
+             }
         }
 
         private void ApplyModernTheme()
@@ -526,6 +817,7 @@ namespace WindowsFormsApp1
 
             styleGrid(dgvGestures);
             if (_dgvAppGestures != null) styleGrid(_dgvAppGestures);
+            if (_dgvGroupGestures != null) styleGrid(_dgvGroupGestures);
 
             // Label
             lblGesture.ForeColor = Color.White;
@@ -545,6 +837,10 @@ namespace WindowsFormsApp1
              if (_btnAddAppGesture != null && _tabApp != null)
             {
                  _btnAddAppGesture.Location = new Point(_tabApp.Width - 220, _tabApp.Height - 50);
+            }
+             if (_btnAddGroupGesture != null && _tabGroup != null)
+            {
+                 _btnAddGroupGesture.Location = new Point(_tabGroup.Width - 220, _tabGroup.Height - 50);
             }
         }
 
@@ -603,6 +899,7 @@ namespace WindowsFormsApp1
                         }
                         
                         list.RemoveAt(e.RowIndex);
+                        SaveGestures();
                     }
                 }
             }
@@ -718,6 +1015,7 @@ namespace WindowsFormsApp1
                     _editingGrid = null;
                     _editingList = null;
                     UpdateGestureLabel("キーを割り当てました。");
+                    SaveGestures();
                 }
                 return true;
             }
@@ -791,6 +1089,7 @@ namespace WindowsFormsApp1
                     _editingRowIndex = -1;
                     _editingGrid = null;
                     _editingList = null;
+                    SaveGestures();
                 }
                 else
                 {
@@ -1001,6 +1300,7 @@ namespace WindowsFormsApp1
                                 RefreshAppList();
                                 _cmbApps.SelectedItem = newProfile;
                                 UpdateGestureLabel($"アプリ '{newProfile.AppName}' を追加しました。");
+                                SaveGestures();
                             }
                             
                             // Reset State
@@ -1241,6 +1541,8 @@ namespace WindowsFormsApp1
             }
 
             GestureMap map = null;
+
+            // Priority 1: App Specific
             if (appProfile != null)
             {
                 // Check if this profile is currently being edited/viewed in the UI
@@ -1254,7 +1556,38 @@ namespace WindowsFormsApp1
                 }
             }
 
-            // Fallback to Global
+            // Priority 2: Group Specific
+            if (map == null && !string.IsNullOrEmpty(appPath))
+            {
+                foreach (var group in _groupProfiles)
+                {
+                    // Check if app is in group
+                    bool inGroup = group.TargetAppPaths.Any(p => p.Equals(appPath, StringComparison.OrdinalIgnoreCase));
+                    if (!inGroup && appProfile != null && !string.IsNullOrEmpty(appProfile.AppPath))
+                    {
+                        // Also check by exact path in profile if differ
+                        inGroup = group.TargetAppPaths.Any(p => p.Equals(appProfile.AppPath, StringComparison.OrdinalIgnoreCase));
+                    }
+                    // Handle case where TargetAppPaths might contain file names? No, assume paths.
+
+                    if (inGroup)
+                    {
+                         // Check if this group is currently being edited
+                        if (_currentGroupProfile != null && group == _currentGroupProfile)
+                        {
+                            map = _groupGestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+                        }
+                        else
+                        {
+                            map = group.Gestures.FirstOrDefault(m => m.Gesture == gesture);
+                        }
+
+                        if (map != null) break; // Found in highest priority group
+                    }
+                }
+            }
+
+            // Priority 3: Global
             if (map == null)
             {
                 // Always use the live BindingList for global gestures
