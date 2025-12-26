@@ -10,5 +10,5 @@ trigger: always_on
 Get-Process MouseGesture -ErrorAction SilentlyContinue | Stop-Process -Force
 
 # プロジェクトを明示的にビルド
-dotnet build D:\works\VisualStudio\WindowsFormsApp1\WindowsFormsApp1.csproj `
-&& D:\works\VisualStudio\WindowsFormsApp1\bin\Debug\MouseGesture.exe
+dotnet build D:\works\VisualStudio\WindowsFormsApp1\MouseGesture\MouseGesture.csproj `
+&& D:\works\VisualStudio\WindowsFormsApp1\MouseGesture\bin\Debug\MouseGesture.exe
