@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
@@ -18,7 +19,7 @@ namespace WindowsFormsApp1
         }
     }
 
-    public class MouseHook
+    public sealed class MouseHook : IDisposable
     {
         public delegate void MouseEventHandler(object sender, MouseHookEventArgs e);
         public event MouseEventHandler LeftButtonDown;
@@ -32,22 +33,59 @@ namespace WindowsFormsApp1
         public event MouseEventHandler MouseMove;
         public event MouseEventHandler MouseWheel;
 
-        private LowLevelMouseProc _proc;
+        private readonly LowLevelMouseProc _proc;
         private IntPtr _hookID = IntPtr.Zero;
+        private bool _disposed;
+
+        // 他プロセスとの衝突確率を下げる（任意）
+        public static readonly IntPtr INJECTED_EVENT_ID =
+            new IntPtr(unchecked((int)0x12345000) ^ Process.GetCurrentProcess().Id);
 
         public MouseHook()
         {
-            _proc = HookCallback;
+            _proc = HookCallback; // delegate保持（GC防止）
         }
 
         public void Start()
         {
+            if (_disposed) throw new ObjectDisposedException(nameof(MouseHook));
+            if (_hookID != IntPtr.Zero) return; // 既に開始済み
+
             _hookID = SetHook(_proc);
+            if (_hookID == IntPtr.Zero)
+            {
+                // SetWindowsHookEx失敗時
+                int err = Marshal.GetLastWin32Error();
+                throw new Win32Exception(err, "SetWindowsHookEx(WH_MOUSE_LL) に失敗しました。");
+            }
         }
 
         public void Stop()
         {
-            UnhookWindowsHookEx(_hookID);
+            if (_hookID == IntPtr.Zero) return;
+
+            try
+            {
+                UnhookWindowsHookEx(_hookID);
+            }
+            finally
+            {
+                _hookID = IntPtr.Zero;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            Stop();
+            GC.SuppressFinalize(this);
+        }
+
+        ~MouseHook()
+        {
+            // 万一Disposeされなくても解除できるように（保険）
+            try { Stop(); } catch { }
         }
 
         private IntPtr SetHook(LowLevelMouseProc proc)
@@ -55,8 +93,12 @@ namespace WindowsFormsApp1
             using (Process curProcess = Process.GetCurrentProcess())
             using (ProcessModule curModule = curProcess.MainModule)
             {
-                return SetWindowsHookEx(WH_MOUSE_LL, proc,
-                    GetModuleHandle(curModule.ModuleName), 0);
+                return SetWindowsHookEx(
+                    WH_MOUSE_LL,
+                    proc,
+                    GetModuleHandle(curModule.ModuleName),
+                    0
+                );
             }
         }
 
@@ -122,50 +164,53 @@ namespace WindowsFormsApp1
 
         private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
 
-        // Use IntPtr for 64-bit compatibility
-        public static readonly IntPtr INJECTED_EVENT_ID = (IntPtr)0x12345;
-
         private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
-            if (nCode >= 0)
+            if (nCode < 0) return CallNextHookEx(_hookID, nCode, wParam, lParam);
+
+            try
             {
-                MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                var hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
 
                 // Ignore events injected by this application
                 if (hookStruct.dwExtraInfo == INJECTED_EVENT_ID)
-                {
                     return CallNextHookEx(_hookID, nCode, wParam, lParam);
+
+                var p = new MousePoint(hookStruct.pt.x, hookStruct.pt.y);
+                var e = new MouseHookEventArgs(p, (int)hookStruct.mouseData);
+
+                var msg = (MouseMessages)wParam;
+
+                // 例外が漏れると入力系が不安定になるのでガード
+                try
+                {
+                    switch (msg)
+                    {
+                        case MouseMessages.WM_LBUTTONDOWN: LeftButtonDown?.Invoke(this, e); break;
+                        case MouseMessages.WM_LBUTTONUP: LeftButtonUp?.Invoke(this, e); break;
+                        case MouseMessages.WM_RBUTTONDOWN: RightButtonDown?.Invoke(this, e); break;
+                        case MouseMessages.WM_RBUTTONUP: RightButtonUp?.Invoke(this, e); break;
+                        case MouseMessages.WM_MBUTTONDOWN: MiddleButtonDown?.Invoke(this, e); break;
+                        case MouseMessages.WM_MBUTTONUP: MiddleButtonUp?.Invoke(this, e); break;
+                        case MouseMessages.WM_XBUTTONDOWN: XButtonDown?.Invoke(this, e); break;
+                        case MouseMessages.WM_XBUTTONUP: XButtonUp?.Invoke(this, e); break;
+                        case MouseMessages.WM_MOUSEMOVE: MouseMove?.Invoke(this, e); break;
+                        case MouseMessages.WM_MOUSEWHEEL: MouseWheel?.Invoke(this, e); break;
+                    }
                 }
-
-                MousePoint p = new MousePoint(hookStruct.pt.x, hookStruct.pt.y);
-                MouseHookEventArgs e = new MouseHookEventArgs(p, (int)hookStruct.mouseData);
-
-                if (MouseMessages.WM_LBUTTONDOWN == (MouseMessages)wParam)
-                    LeftButtonDown?.Invoke(this, e);
-                if (MouseMessages.WM_LBUTTONUP == (MouseMessages)wParam)
-                    LeftButtonUp?.Invoke(this, e);
-                if (MouseMessages.WM_RBUTTONDOWN == (MouseMessages)wParam)
-                    RightButtonDown?.Invoke(this, e);
-                if (MouseMessages.WM_RBUTTONUP == (MouseMessages)wParam)
-                    RightButtonUp?.Invoke(this, e);
-                if (MouseMessages.WM_MBUTTONDOWN == (MouseMessages)wParam)
-                    MiddleButtonDown?.Invoke(this, e);
-                if (MouseMessages.WM_MBUTTONUP == (MouseMessages)wParam)
-                    MiddleButtonUp?.Invoke(this, e);
-                if (MouseMessages.WM_XBUTTONDOWN == (MouseMessages)wParam)
-                    XButtonDown?.Invoke(this, e);
-                if (MouseMessages.WM_XBUTTONUP == (MouseMessages)wParam)
-                    XButtonUp?.Invoke(this, e);
-                if (MouseMessages.WM_MOUSEMOVE == (MouseMessages)wParam)
-                    MouseMove?.Invoke(this, e);
-                if (MouseMessages.WM_MOUSEWHEEL == (MouseMessages)wParam)
-                    MouseWheel?.Invoke(this, e);
+                catch
+                {
+                    // フック側では握って次へ
+                }
 
                 if (e.Handled)
-                {
                     return (IntPtr)1;
-                }
             }
+            catch
+            {
+                // Marshal/PInvoke系の事故も握って次へ
+            }
+
             return CallNextHookEx(_hookID, nCode, wParam, lParam);
         }
 
@@ -203,16 +248,14 @@ namespace WindowsFormsApp1
         }
 
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr SetWindowsHookEx(int idHook,
-            LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool UnhookWindowsHookEx(IntPtr hhk);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode,
-            IntPtr wParam, IntPtr lParam);
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern IntPtr GetModuleHandle(string lpModuleName);
