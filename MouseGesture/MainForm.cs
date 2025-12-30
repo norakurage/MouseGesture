@@ -85,6 +85,7 @@ namespace WindowsFormsApp1
         private DataGridView _editingGrid; // Track which grid is editing
         private BindingList<GestureMap> _editingList; // Track which list is being edited
         private bool _isMessageBoxShowing = false; // Prevent multiple popups
+        private volatile bool _isClosing = false;
 
         // Performance & Thread Safety
         private int _lastFeedbackUpdateTick = 0;
@@ -855,8 +856,9 @@ namespace WindowsFormsApp1
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            SaveGestures();
+            _isClosing = true;
             _mouseHook?.Stop();
+            SaveGestures();
             base.OnFormClosing(e);
         }
 
@@ -1210,8 +1212,8 @@ namespace WindowsFormsApp1
             int now = Environment.TickCount;
             if (unchecked(now - _lastFeedbackUpdateTick) >= FEEDBACK_UPDATE_INTERVAL_MS)
             {
-                UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
                 _lastFeedbackUpdateTick = now;
+                UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
             }
 
             // Immediate execution logic removed for gestures
@@ -1383,10 +1385,15 @@ namespace WindowsFormsApp1
 
         private void UpdateRealTimeFeedback(string gesture, Point location)
         {
-            if (this.IsDisposed) return;
+            if (_isClosing || this.IsDisposed || !this.IsHandleCreated) return;
+
             if (this.InvokeRequired)
             {
-                this.BeginInvoke(new Action(() => UpdateRealTimeFeedback(gesture, location)));
+                try
+                {
+                    this.BeginInvoke(new Action(() => UpdateRealTimeFeedback(gesture, location)));
+                }
+                catch { }
                 return;
             }
 
@@ -1471,10 +1478,15 @@ namespace WindowsFormsApp1
 
         private void HideRealTimeFeedback()
         {
-            if (this.IsDisposed) return;
+            if (_isClosing || this.IsDisposed || !this.IsHandleCreated) return;
+
             if (this.InvokeRequired)
             {
-                this.BeginInvoke(new Action(() => HideRealTimeFeedback()));
+                try
+                {
+                    this.BeginInvoke(new Action(() => HideRealTimeFeedback()));
+                }
+                catch { }
                 return;
             }
 
