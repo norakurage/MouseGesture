@@ -21,7 +21,7 @@ namespace WindowsFormsApp1
         private MousePoint _startPoint;
         private List<string> _gestureDirections = new List<string>();
         private const int MOVEMENT_THRESHOLD = 20;
-        private const string SETTINGS_FILE = "gestures.xml";
+        private string SettingsFilePath => Path.Combine(Application.StartupPath, "gestures.xml");
         private const int MAX_GESTURE_STEPS = 8;
 
         // Data binding
@@ -352,10 +352,10 @@ namespace WindowsFormsApp1
         {
             try
             {
-                if (File.Exists(SETTINGS_FILE))
+                if (File.Exists(SettingsFilePath))
                 {
                     string rootName = "";
-                    using (System.Xml.XmlReader reader = System.Xml.XmlReader.Create(SETTINGS_FILE))
+                    using (System.Xml.XmlReader reader = System.Xml.XmlReader.Create(SettingsFilePath))
                     {
                         if (reader.MoveToContent() == System.Xml.XmlNodeType.Element)
                         {
@@ -366,7 +366,7 @@ namespace WindowsFormsApp1
                     if (rootName == "GestureConfig")
                     {
                         XmlSerializer serializer = new XmlSerializer(typeof(GestureConfig));
-                        using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Open))
+                        using (FileStream fs = new FileStream(SettingsFilePath, FileMode.Open))
                         {
                             var config = (GestureConfig)serializer.Deserialize(fs);
                             _appProfiles = config.AppProfiles;
@@ -379,7 +379,7 @@ namespace WindowsFormsApp1
                     else if (rootName == "ArrayOfAppProfile")
                     {
                         XmlSerializer serializer = new XmlSerializer(typeof(List<AppProfile>));
-                        using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Open))
+                        using (FileStream fs = new FileStream(SettingsFilePath, FileMode.Open))
                         {
                             _appProfiles = (List<AppProfile>)serializer.Deserialize(fs);
                         }
@@ -390,7 +390,7 @@ namespace WindowsFormsApp1
                         // Fallback: Try loading old format (List<GestureMap>) or unknown
                         // This handles "ArrayOfGestureMap"
                         XmlSerializer serializer = new XmlSerializer(typeof(List<GestureMap>));
-                        using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Open))
+                        using (FileStream fs = new FileStream(SettingsFilePath, FileMode.Open))
                         {
                             var loadedGestures = (List<GestureMap>)serializer.Deserialize(fs);
                             _appProfiles.Clear();
@@ -449,7 +449,7 @@ namespace WindowsFormsApp1
                 };
 
                 XmlSerializer serializer = new XmlSerializer(typeof(GestureConfig));
-                using (FileStream fs = new FileStream(SETTINGS_FILE, FileMode.Create))
+                using (FileStream fs = new FileStream(SettingsFilePath, FileMode.Create))
                 {
                     serializer.Serialize(fs, config);
                 }
