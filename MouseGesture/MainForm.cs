@@ -86,6 +86,10 @@ namespace WindowsFormsApp1
         private BindingList<GestureMap> _editingList; // Track which list is being edited
         private bool _isMessageBoxShowing = false; // Prevent multiple popups
 
+        // Performance & Thread Safety
+        private int _lastFeedbackUpdateTick = 0;
+        private const int FEEDBACK_UPDATE_INTERVAL_MS = 20;
+
         public Form1()
 
         {
@@ -142,9 +146,8 @@ namespace WindowsFormsApp1
             // Grid handlers are added in SetupGridProperties, but keeping existing explicit ones if they were important
             // Actually, SetupGridProperties adds them. I will allow them to be added or remove redundancy.
             // Existing code layout had them. I'll re-add them to be safe and consistent with previous state.
-            dgvGestures.MouseDown += EndEditOnMouseDown;
-            _dgvAppGestures.MouseDown += EndEditOnMouseDown;
-            if (_dgvGroupGestures != null) _dgvGroupGestures.MouseDown += EndEditOnMouseDown;
+            // Grid handlers are added in SetupGridProperties.
+            // Explicit handlers removed to avoid double registration.
             
              // Select first app if available
             if (_cmbApps.Items.Count > 0)
@@ -220,8 +223,7 @@ namespace WindowsFormsApp1
             _tabApp.Controls.Add(_dgvAppGestures);
             _tabApp.Controls.Add(panelTop);
             
-            _tabApp.Controls.Add(_dgvAppGestures);
-            _tabApp.Controls.Add(panelTop);
+
 
             // Create Group Tab
             _tabGroup = new TabPage("グループ設定");
@@ -1031,7 +1033,7 @@ namespace WindowsFormsApp1
             _startPoint = e.Point;
             _gestureDirections.Clear();
             
-            _gestureDirections.Clear();
+
 
             // Reset feedback state for new gesture
             _feedbackHideTimer?.Stop();
@@ -1204,7 +1206,13 @@ namespace WindowsFormsApp1
             }
             
             string currentGesture = string.Join("", _gestureDirections);
-            UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
+            
+            int now = Environment.TickCount;
+            if (unchecked(now - _lastFeedbackUpdateTick) >= FEEDBACK_UPDATE_INTERVAL_MS)
+            {
+                UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
+                _lastFeedbackUpdateTick = now;
+            }
 
             // Immediate execution logic removed for gestures
             /*
@@ -1375,6 +1383,13 @@ namespace WindowsFormsApp1
 
         private void UpdateRealTimeFeedback(string gesture, Point location)
         {
+            if (this.IsDisposed) return;
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(() => UpdateRealTimeFeedback(gesture, location)));
+                return;
+            }
+
             float targetPixelSize = SystemInformation.CursorSize.Height * 0.6f;
             if (targetPixelSize < 12) targetPixelSize = 12;
 
@@ -1456,6 +1471,13 @@ namespace WindowsFormsApp1
 
         private void HideRealTimeFeedback()
         {
+            if (this.IsDisposed) return;
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke(new Action(() => HideRealTimeFeedback()));
+                return;
+            }
+
             if (_feedbackForm != null && !_feedbackForm.IsDisposed)
             {
                 _feedbackForm.Hide();
