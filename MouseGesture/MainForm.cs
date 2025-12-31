@@ -42,6 +42,7 @@ namespace WindowsFormsApp1
         // Immediate Execution
         private bool _gestureExecuted = false;
         private Timer _feedbackHideTimer;
+        private Timer _feedbackFadeTimer;
 
         // App Profiles
         private List<AppProfile> _appProfiles = new List<AppProfile>();
@@ -89,7 +90,7 @@ namespace WindowsFormsApp1
 
         // Performance & Thread Safety
         private int _lastFeedbackUpdateTick = 0;
-        private const int FEEDBACK_UPDATE_INTERVAL_MS = 20;
+        private const int FEEDBACK_UPDATE_INTERVAL_MS = 7; // 7ms = 144fps for smoother feedback
 
         public Form1()
 
@@ -124,6 +125,30 @@ namespace WindowsFormsApp1
             {
                 _feedbackHideTimer.Stop();
                 HideRealTimeFeedback();
+            };
+
+            // Feedback Fade Timer
+            _feedbackFadeTimer = new Timer();
+            _feedbackFadeTimer.Interval = 16; // ~60fps fade
+            _feedbackFadeTimer.Tick += (s, args) =>
+            {
+                if (_feedbackForm == null || _feedbackForm.IsDisposed)
+                {
+                    _feedbackFadeTimer.Stop();
+                    return;
+                }
+
+                if (_feedbackForm.Opacity > 0)
+                {
+                    _feedbackForm.Opacity -= 0.05; // Fade speed
+                }
+                
+                if (_feedbackForm.Opacity <= 0)
+                {
+                    _feedbackFadeTimer.Stop();
+                    _feedbackForm.Hide();
+                    _feedbackForm.Opacity = 0.8; // Restore for next use
+                }
             };
 
             // Setup Global Grid
@@ -1472,7 +1497,17 @@ namespace WindowsFormsApp1
             if (!_feedbackForm.Visible)
             {
                 if (!string.IsNullOrEmpty(displayText))
+                {
+                    _feedbackFadeTimer?.Stop();
+                    _feedbackForm.Opacity = 0.8;
                     _feedbackForm.Show();
+                }
+            }
+            else
+            {
+                // Ensure opacity is reset if we are just updating text while it's fading (unlikely but possible)
+                _feedbackFadeTimer?.Stop();
+                _feedbackForm.Opacity = 0.8;
             }
         }
 
@@ -1490,9 +1525,13 @@ namespace WindowsFormsApp1
                 return;
             }
 
-            if (_feedbackForm != null && !_feedbackForm.IsDisposed)
+            if (_feedbackForm != null && !_feedbackForm.IsDisposed && _feedbackForm.Visible)
             {
-                _feedbackForm.Hide();
+                // Start fade out instead of instant hide
+                if (_feedbackFadeTimer != null && !_feedbackFadeTimer.Enabled)
+                {
+                    _feedbackFadeTimer.Start();
+                }
             }
         }
 
