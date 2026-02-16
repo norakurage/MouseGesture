@@ -19,6 +19,7 @@ namespace WindowsFormsApp1
     {
         public string AppPath { get; set; } // Null or Empty for Global
         public string AppName { get; set; }
+        public bool Disabled { get; set; }
         public List<GestureMap> Gestures { get; set; } = new List<GestureMap>();
     }
 

@@ -65,6 +65,7 @@ namespace WindowsFormsApp1
         private Button _btnRemoveApp;
         private DataGridView _dgvAppGestures;
         private Label _lblAppHint;
+        private CheckBox _chkDisableApp;
 
         // UI Controls - Group Tab
         private ComboBox _cmbGroups;
@@ -204,7 +205,7 @@ namespace WindowsFormsApp1
             // Setup App Tab UI
             Panel panelTop = new Panel();
             panelTop.Dock = DockStyle.Top;
-            panelTop.Height = 40;
+            panelTop.Height = 70;
             panelTop.BackColor = Color.FromArgb(30, 30, 30);
             
             _lblAppHint = new Label();
@@ -237,10 +238,25 @@ namespace WindowsFormsApp1
             _btnRemoveApp.ForeColor = Color.White;
             _btnRemoveApp.Click += BtnRemoveApp_Click;
 
+            _chkDisableApp = new CheckBox();
+            _chkDisableApp.Text = "このアプリを監視しない";
+            _chkDisableApp.ForeColor = Color.White;
+            _chkDisableApp.Location = new Point(80, 40);
+            _chkDisableApp.AutoSize = true;
+            _chkDisableApp.CheckedChanged += (s, e) => 
+            {
+                if (_currentAppProfile != null)
+                {
+                    _currentAppProfile.Disabled = _chkDisableApp.Checked;
+                    SaveGestures();
+                }
+            };
+
             panelTop.Controls.Add(_lblAppHint);
             panelTop.Controls.Add(_cmbApps);
             panelTop.Controls.Add(_btnSelectWindow);
             panelTop.Controls.Add(_btnRemoveApp);
+            panelTop.Controls.Add(_chkDisableApp);
             
             _dgvAppGestures = new DataGridView();
             _dgvAppGestures.Dock = DockStyle.Fill;
@@ -546,6 +562,12 @@ namespace WindowsFormsApp1
                 }
 
                 _currentAppProfile = profile;
+                
+                // Update Checkbox without triggering event (or ensure handler is idempotent)
+                // The handler saves which is fine, but redundant. 
+                // We can just set checked.
+                _chkDisableApp.Checked = profile.Disabled;
+
                 _appGestureMaps.Clear();
                 foreach(var g in profile.Gestures) _appGestureMaps.Add(g);
                 
@@ -1055,6 +1077,30 @@ namespace WindowsFormsApp1
 
         private void OnRightButtonDown(object sender, MouseHookEventArgs e)
         {
+            // Check if current app is disabled
+            string currentAppPath = ProcessUtils.GetActiveProcessPath();
+            if (!string.IsNullOrEmpty(currentAppPath))
+            {
+                 var profile = _appProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && currentAppPath.Equals(p.AppPath, StringComparison.OrdinalIgnoreCase));
+                 // Fallback to filename match
+                 if (profile == null)
+                 {
+                     string appName = Path.GetFileName(currentAppPath);
+                     try
+                     {
+                         profile = _appProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && 
+                             string.Equals(Path.GetFileName(p.AppPath), appName, StringComparison.OrdinalIgnoreCase));
+                     }
+                     catch {}
+                 }
+
+                 if (profile != null && profile.Disabled)
+                 {
+                     // Do not handle, do not consume event.
+                     return;
+                 }
+            }
+
             _isRightButtonDown = true;
             _gestureExecuted = false;
             _startPoint = e.Point;
@@ -1073,6 +1119,8 @@ namespace WindowsFormsApp1
 
         private void OnRightButtonUp(object sender, MouseHookEventArgs e)
         {
+            if (!_isRightButtonDown) return;
+
             _isRightButtonDown = false;
             
             // Only hide feedback if we're not waiting for an immediate gesture feedback to expire
