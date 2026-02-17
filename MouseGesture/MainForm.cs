@@ -241,7 +241,7 @@ namespace WindowsFormsApp1
             _chkDisableApp = new CheckBox();
             _chkDisableApp.Text = "このアプリを監視しない";
             _chkDisableApp.ForeColor = Color.White;
-            _chkDisableApp.Location = new Point(80, 40);
+            _chkDisableApp.Location = new Point(10, 40);
             _chkDisableApp.AutoSize = true;
             _chkDisableApp.CheckedChanged += (s, e) => 
             {
