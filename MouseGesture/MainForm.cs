@@ -622,7 +622,8 @@ namespace WindowsFormsApp1
                         if (p.Id != currentPid && p.MainWindowHandle != IntPtr.Zero && !string.IsNullOrEmpty(p.MainWindowTitle))
                         {
                             string path = ProcessUtils.GetProcessPath((uint)p.Id);
-                            if (!string.IsNullOrEmpty(path) && !addedPaths.Contains(path))
+                            if (!string.IsNullOrEmpty(path) && !addedPaths.Contains(path) && 
+                                !_appProfiles.Any(profile => string.Equals(profile.AppPath, path, StringComparison.OrdinalIgnoreCase)))
                             {
                                 addedPaths.Add(path);
                                 string exeName = Path.GetFileNameWithoutExtension(path);
