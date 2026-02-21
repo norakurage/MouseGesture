@@ -78,7 +78,6 @@ namespace WindowsFormsApp1
 
         // Window Selection
         private Button _btnSelectWindow;
-        private bool _isSelectingWindow = false;
 
         // Editing State
         private int _editingRowIndex = -1;
@@ -86,7 +85,6 @@ namespace WindowsFormsApp1
         private bool _isListeningForKey = false;
         private DataGridView _editingGrid; // Track which grid is editing
         private BindingList<GestureMap> _editingList; // Track which list is being edited
-        private bool _isMessageBoxShowing = false; // Prevent multiple popups
         private volatile bool _isClosing = false;
 
         // Performance & Thread Safety
@@ -575,23 +573,98 @@ namespace WindowsFormsApp1
             }
         }
 
-        private void StopWindowSelection()
+
+
+        private class OpenAppItem
         {
-            if (_isSelectingWindow)
-            {
-                _isSelectingWindow = false;
-                _btnSelectWindow.BackColor = Color.FromArgb(0, 122, 204);
-                UpdateGestureLabel("キャンセルしました。");
-            }
+            public string AppName { get; set; }
+            public string AppPath { get; set; }
+            public override string ToString() => AppName;
         }
 
         private void BtnSelectWindow_Click(object sender, EventArgs e)
         {
-            if (_isSelectingWindow) return;
+            using (Form selectAppForm = new Form())
+            {
+                selectAppForm.Text = "アプリ追加";
+                selectAppForm.Size = new Size(400, 180);
+                selectAppForm.StartPosition = FormStartPosition.CenterParent;
+                selectAppForm.FormBorderStyle = FormBorderStyle.FixedDialog;
+                selectAppForm.MaximizeBox = false;
 
-            _isSelectingWindow = true;
-            _btnSelectWindow.BackColor = Color.OrangeRed;
-            UpdateGestureLabel("このウィンドウ以外の対象ウィンドウをクリックしてください... (右クリックでキャンセル)");
+                selectAppForm.BackColor = Color.FromArgb(30, 30, 30);
+                selectAppForm.ForeColor = Color.White;
+
+                Label lbl = new Label() { Left = 20, Top = 20, Text = "現在開いているアプリを選択してください:", AutoSize = true, ForeColor = Color.White };
+                ComboBox cmbOpenApps = new ComboBox() { Left = 20, Top = 45, Width = 340, DropDownStyle = ComboBoxStyle.DropDownList };
+                cmbOpenApps.BackColor = Color.FromArgb(45, 45, 48);
+                cmbOpenApps.ForeColor = Color.White;
+                cmbOpenApps.FlatStyle = FlatStyle.Flat;
+
+                Button btnOk = new Button() { Text = "追加", Left = 200, Width = 80, Top = 90, DialogResult = DialogResult.OK, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(0, 122, 204), ForeColor = Color.White };
+                Button btnCancel = new Button() { Text = "キャンセル", Left = 290, Width = 80, Top = 90, DialogResult = DialogResult.Cancel, FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(45, 45, 48), ForeColor = Color.White };
+                
+                selectAppForm.Controls.Add(lbl);
+                selectAppForm.Controls.Add(cmbOpenApps);
+                selectAppForm.Controls.Add(btnOk);
+                selectAppForm.Controls.Add(btnCancel);
+                selectAppForm.AcceptButton = btnOk;
+                selectAppForm.CancelButton = btnCancel;
+
+                var processes = Process.GetProcesses();
+                var currentPid = Process.GetCurrentProcess().Id;
+                var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var p in processes)
+                {
+                    try
+                    {
+                        if (p.Id != currentPid && p.MainWindowHandle != IntPtr.Zero && !string.IsNullOrEmpty(p.MainWindowTitle))
+                        {
+                            string path = ProcessUtils.GetProcessPath((uint)p.Id);
+                            if (!string.IsNullOrEmpty(path) && !addedPaths.Contains(path))
+                            {
+                                addedPaths.Add(path);
+                                cmbOpenApps.Items.Add(new OpenAppItem 
+                                { 
+                                    AppName = p.MainWindowTitle + " (" + Path.GetFileName(path) + ")", 
+                                    AppPath = path 
+                                });
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                if (cmbOpenApps.Items.Count > 0)
+                    cmbOpenApps.SelectedIndex = 0;
+
+                if (selectAppForm.ShowDialog(this) == DialogResult.OK)
+                {
+                    var selected = cmbOpenApps.SelectedItem as OpenAppItem;
+                    if (selected != null)
+                    {
+                        string path = selected.AppPath;
+                        if (_appProfiles.Any(p => p.AppPath != null && p.AppPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            MessageBox.Show("このアプリは既に追加されています。");
+                        }
+                        else
+                        {
+                            var newProfile = new AppProfile 
+                            { 
+                                AppPath = path, 
+                                AppName = Path.GetFileNameWithoutExtension(path) 
+                            };
+                            _appProfiles.Add(newProfile);
+                            RefreshAppList();
+                            _cmbApps.SelectedItem = newProfile;
+                            UpdateGestureLabel($"アプリ '{newProfile.AppName}' を追加しました。");
+                            SaveGestures();
+                        }
+                    }
+                }
+            }
         }
 
         private void EndEditOnMouseDown(object sender, MouseEventArgs e)
@@ -1132,12 +1205,7 @@ namespace WindowsFormsApp1
             string finalGesture = string.Join("", _gestureDirections);
             e.Handled = true;
 
-            // 1. Window Selection Cancel
-            if (_isSelectingWindow)
-            {
-                this.Invoke(new Action(() => StopWindowSelection()));
-                return;
-            }
+
 
             // 2. Gesture Recording
             if (_isRecordingGesture && _editingRowIndex >= 0 && _editingList != null && _editingRowIndex < _editingList.Count)
@@ -1344,62 +1412,7 @@ namespace WindowsFormsApp1
 
         private void OnLeftButtonDown(object sender, MouseHookEventArgs e)
         {
-            if (_isSelectingWindow)
-            {
-                // Handle Window Selection
-                IntPtr hWnd = NativeMethods.WindowFromPoint(new Point(e.Point.X, e.Point.Y));
-                if (hWnd != IntPtr.Zero)
-                {
-                    // Get root window or foreground? Usually need PID.
-                    NativeMethods.GetWindowThreadProcessId(hWnd, out uint processId);
-                    
-                    // Check if it's our own app
-                    int currentPid = Process.GetCurrentProcess().Id;
-                    if (processId == currentPid) return; // Allow normal interaction with own app
 
-                    string path = ProcessUtils.GetProcessPath(processId);
-                    if (path != null)
-                    {
-                        this.BeginInvoke(new Action(() => 
-                        {
-                            if (_appProfiles.Any(p => p.AppPath != null && p.AppPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                if (!_isMessageBoxShowing)
-                                {
-                                    _isMessageBoxShowing = true;
-                                    MessageBox.Show("このアプリは既に追加されています。");
-                                    _isMessageBoxShowing = false;
-                                    StopWindowSelection();
-                                }
-                            }
-                            else
-                            {
-                                var newProfile = new AppProfile 
-                                { 
-                                    AppPath = path, 
-                                    AppName = Path.GetFileNameWithoutExtension(path) 
-                                };
-                                _appProfiles.Add(newProfile);
-                                RefreshAppList();
-                                _cmbApps.SelectedItem = newProfile;
-                                UpdateGestureLabel($"アプリ '{newProfile.AppName}' を追加しました。");
-                                SaveGestures();
-                            }
-                            
-                            // Reset State
-                            _isSelectingWindow = false;
-                            _btnSelectWindow.BackColor = Color.FromArgb(0, 122, 204);
-                        }));
-                    }
-                    else
-                    {
-                        this.BeginInvoke(new Action(() => MessageBox.Show("アプリ情報の取得に失敗しました。")));
-                    }
-                }
-                
-                e.Handled = true; // Consume the click
-                return;
-            }
 
             if (!_isRightButtonDown) return;
             AddClickGesture("L", e);
