@@ -625,9 +625,15 @@ namespace WindowsFormsApp1
                             if (!string.IsNullOrEmpty(path) && !addedPaths.Contains(path))
                             {
                                 addedPaths.Add(path);
+                                string exeName = Path.GetFileNameWithoutExtension(path);
+                                // Optional logic to uppercase first character if it's all lowercase, typical for names like "chrome"
+                                if (exeName.Length > 0 && char.IsLower(exeName[0])) {
+                                    exeName = char.ToUpper(exeName[0]) + exeName.Substring(1);
+                                }
+
                                 cmbOpenApps.Items.Add(new OpenAppItem 
                                 { 
-                                    AppName = p.MainWindowTitle + " (" + Path.GetFileName(path) + ")", 
+                                    AppName = exeName, 
                                     AppPath = path 
                                 });
                             }
@@ -654,7 +660,7 @@ namespace WindowsFormsApp1
                             var newProfile = new AppProfile 
                             { 
                                 AppPath = path, 
-                                AppName = Path.GetFileNameWithoutExtension(path) 
+                                AppName = selected.AppName 
                             };
                             _appProfiles.Add(newProfile);
                             RefreshAppList();
