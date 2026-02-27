@@ -87,6 +87,10 @@ namespace WindowsFormsApp1
         private BindingList<GestureMap> _editingList; // Track which list is being edited
         private volatile bool _isClosing = false;
 
+        // System Tray
+        private NotifyIcon _notifyIcon;
+        private bool _realClose = false; // 本当に終了する場合のみ true
+
         // Performance & Thread Safety
         private int _lastFeedbackUpdateTick = 0;
         private const int FEEDBACK_UPDATE_INTERVAL_MS = 7; // 7ms = 144fps for smoother feedback
@@ -95,6 +99,62 @@ namespace WindowsFormsApp1
 
         {
             InitializeComponent();
+        }
+
+        private void InitializeTrayIcon()
+        {
+            // コンテキストメニュー
+            var menu = new ContextMenuStrip();
+            var menuOpen = new ToolStripMenuItem("設定を開く");
+            menuOpen.Click += (s, e) => RestoreFromTray();
+            menu.Items.Add(menuOpen);
+            menu.Items.Add(new ToolStripSeparator());
+            var menuExit = new ToolStripMenuItem("終了");
+            menuExit.Click += (s, e) =>
+            {
+                _realClose = true;
+                Application.Exit();
+            };
+            menu.Items.Add(menuExit);
+
+            _notifyIcon = new NotifyIcon();
+            _notifyIcon.Text = "Mouse Gesture";
+            _notifyIcon.Icon = this.Icon ?? SystemIcons.Application;
+            _notifyIcon.ContextMenuStrip = menu;
+            _notifyIcon.Visible = true;
+
+            // ダブルクリックで設定ウィンドウを表示
+            _notifyIcon.DoubleClick += (s, e) => RestoreFromTray();
+        }
+
+        private void RestoreFromTray()
+        {
+            this.Show();
+            this.WindowState = FormWindowState.Normal;
+            this.Activate();
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (!_realClose && e.CloseReason == CloseReason.UserClosing)
+            {
+                // ×ボタンはトレイへ格納するだけ
+                e.Cancel = true;
+                this.Hide();
+            }
+            else
+            {
+                // 本当に終了する
+                _isClosing = true;
+                _mouseHook?.Stop();
+                SaveGestures();
+                if (_notifyIcon != null)
+                {
+                    _notifyIcon.Visible = false;
+                    _notifyIcon.Dispose();
+                }
+                base.OnFormClosing(e);
+            }
         }
 
         private void Form1_Load(object sender, EventArgs e)
@@ -106,6 +166,7 @@ namespace WindowsFormsApp1
             InitializeCustomUI(); // Create Tabs and move controls
             InitializeAddButton(); // Add buttons
             ApplyModernTheme(); // Apply theme to all controls
+            InitializeTrayIcon(); // System tray
             
             _mouseHook = new MouseHook();
             _mouseHook.RightButtonDown += OnRightButtonDown;
@@ -981,13 +1042,7 @@ namespace WindowsFormsApp1
             txt.BorderStyle = BorderStyle.FixedSingle;
         }
 
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            _isClosing = true;
-            _mouseHook?.Stop();
-            SaveGestures();
-            base.OnFormClosing(e);
-        }
+
 
         private bool IsDesignMode()
         {
