@@ -85,6 +85,7 @@
     <Compile Include="NativeMethods.cs" />
     <Compile Include="KeyUtils.cs" />
     <Compile Include="ProcessUtils.cs" />
+    <Compile Include="FeedbackForm.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <EmbeddedResource Include="MainForm.resx">

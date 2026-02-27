@@ -95,6 +95,9 @@ namespace WindowsFormsApp1
         private int _lastFeedbackUpdateTick = 0;
         private const int FEEDBACK_UPDATE_INTERVAL_MS = 7; // 7ms = 144fps for smoother feedback
 
+        // ジェスチャー開始時のターゲットウィンドウ（フォーカス復元用）
+        private IntPtr _targetWindowHandle = IntPtr.Zero;
+
         public Form1()
 
         {
@@ -1236,12 +1239,13 @@ namespace WindowsFormsApp1
                  }
             }
 
+            // ジェスチャー開始時のターゲットウィンドウを記録（実行時のフォーカス復元用）
+            _targetWindowHandle = NativeMethods.GetForegroundWindow();
+
             _isRightButtonDown = true;
             _gestureExecuted = false;
             _startPoint = e.Point;
             _gestureDirections.Clear();
-            
-
 
             // Reset feedback state for new gesture
             _feedbackHideTimer?.Stop();
@@ -1550,7 +1554,7 @@ namespace WindowsFormsApp1
 
             if (_feedbackForm == null || _feedbackForm.IsDisposed)
             {
-                _feedbackForm = new Form();
+                _feedbackForm = new FeedbackForm();
                 _feedbackForm.FormBorderStyle = FormBorderStyle.None;
                 _feedbackForm.ShowInTaskbar = false;
                 _feedbackForm.StartPosition = FormStartPosition.Manual;
@@ -1801,7 +1805,6 @@ namespace WindowsFormsApp1
             {
                 if (!string.IsNullOrEmpty(map.KeyBinding))
                 {
-                    // Use BeginInvoke to send keys asynchronously, avoiding conflicts with the hook procedure
                     this.BeginInvoke(new Action(() =>
                     {
                         try
