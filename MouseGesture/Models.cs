@@ -21,6 +21,24 @@ namespace WindowsFormsApp1
         public string AppName { get; set; }
         public bool Disabled { get; set; }
         public List<GestureMap> Gestures { get; set; } = new List<GestureMap>();
+
+        [System.Xml.Serialization.XmlIgnore]
+        public Dictionary<string, GestureMap> GestureDict { get; set; } = new Dictionary<string, GestureMap>();
+
+        public void RebuildDictionary()
+        {
+            GestureDict.Clear();
+            if (Gestures != null)
+            {
+                foreach (var g in Gestures)
+                {
+                    if (!string.IsNullOrEmpty(g.Gesture))
+                    {
+                        GestureDict[g.Gesture] = g;
+                    }
+                }
+            }
+        }
     }
 
     public class GroupProfile
@@ -28,6 +46,24 @@ namespace WindowsFormsApp1
         public string GroupName { get; set; }
         public List<string> TargetAppPaths { get; set; } = new List<string>();
         public List<GestureMap> Gestures { get; set; } = new List<GestureMap>();
+
+        [System.Xml.Serialization.XmlIgnore]
+        public Dictionary<string, GestureMap> GestureDict { get; set; } = new Dictionary<string, GestureMap>();
+
+        public void RebuildDictionary()
+        {
+            GestureDict.Clear();
+            if (Gestures != null)
+            {
+                foreach (var g in Gestures)
+                {
+                    if (!string.IsNullOrEmpty(g.Gesture))
+                    {
+                        GestureDict[g.Gesture] = g;
+                    }
+                }
+            }
+        }
     }
 
     public class GestureConfig

@@ -523,6 +523,15 @@ namespace WindowsFormsApp1
             var globalProfile = _appProfiles.First(p => string.IsNullOrEmpty(p.AppPath));
             _gestureMaps.Clear();
             foreach(var g in globalProfile.Gestures) _gestureMaps.Add(g);
+
+            foreach (var profile in _appProfiles)
+            {
+                profile.RebuildDictionary();
+            }
+            foreach (var group in _groupProfiles)
+            {
+                group.RebuildDictionary();
+            }
         }
 
         private void SaveGestures()
@@ -543,6 +552,16 @@ namespace WindowsFormsApp1
                 if (_currentGroupProfile != null)
                 {
                     _currentGroupProfile.Gestures = _groupGestureMaps.ToList();
+                }
+
+                // Rebuild Dictionaries for fast lookup
+                foreach (var profile in _appProfiles)
+                {
+                    profile.RebuildDictionary();
+                }
+                foreach (var group in _groupProfiles)
+                {
+                    group.RebuildDictionary();
                 }
 
                 GestureConfig config = new GestureConfig
@@ -1752,7 +1771,7 @@ namespace WindowsFormsApp1
                 }
                 else
                 {
-                    map = appProfile.Gestures.FirstOrDefault(m => m.Gesture == gesture);
+                    appProfile.GestureDict.TryGetValue(gesture, out map);
                 }
             }
 
@@ -1779,7 +1798,7 @@ namespace WindowsFormsApp1
                         }
                         else
                         {
-                            map = group.Gestures.FirstOrDefault(m => m.Gesture == gesture);
+                            group.GestureDict.TryGetValue(gesture, out map);
                         }
 
                         if (map != null) break; // Found in highest priority group
@@ -1790,8 +1809,22 @@ namespace WindowsFormsApp1
             // Priority 3: Global
             if (map == null)
             {
-                // Always use the live BindingList for global gestures
-                map = _gestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+                // Always use the live BindingList for global gestures if currently evaluating, 
+                // but wait, global profile is always loaded into _gestureMaps. 
+                // Let's use it for the edited items but it's O(N).
+                // Actually, globalProfile is always the first appProfile.
+                var globalProfile = _appProfiles.FirstOrDefault(p => string.IsNullOrEmpty(p.AppPath));
+                if (globalProfile != null && globalProfile.GestureDict.TryGetValue(gesture, out GestureMap gm))
+                {
+                    // Check if it's the same instance from _gestureMaps for live edits
+                    map = gm;
+                }
+                
+                // Fallback to binding list if not found (for unsaved live edits)
+                if (map == null)
+                {
+                    map = _gestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+                }
             }
 
             return map;
