@@ -98,6 +98,10 @@ namespace WindowsFormsApp1
         // ジェスチャー開始時のターゲットウィンドウ（フォーカス復元用）
         private IntPtr _targetWindowHandle = IntPtr.Zero;
 
+        // シングルインスタンス制御
+        private System.Threading.EventWaitHandle _showWindowWaitHandle;
+        private System.Threading.RegisteredWaitHandle _registeredWaitHandle;
+
         public Form1()
 
         {
@@ -137,6 +141,17 @@ namespace WindowsFormsApp1
             this.Activate();
         }
 
+        private void ShowWindowCallback(object state, bool timedOut)
+        {
+            if (this.IsHandleCreated)
+            {
+                this.Invoke((MethodInvoker)delegate
+                {
+                    RestoreFromTray();
+                });
+            }
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             if (!_realClose && e.CloseReason == CloseReason.UserClosing)
@@ -150,6 +165,10 @@ namespace WindowsFormsApp1
                 // 本当に終了する
                 _isClosing = true;
                 _mouseHook?.Stop();
+                
+                _registeredWaitHandle?.Unregister(null);
+                _showWindowWaitHandle?.Dispose();
+
                 SaveGestures();
                 if (_notifyIcon != null)
                 {
@@ -163,6 +182,10 @@ namespace WindowsFormsApp1
         private void Form1_Load(object sender, EventArgs e)
         {
             if (IsDesignMode()) return;
+
+            // シングルインスタンス用のイベント待機ハンドル
+            _showWindowWaitHandle = new System.Threading.EventWaitHandle(false, System.Threading.EventResetMode.AutoReset, "MouseGestureApp_ShowWindowEvent");
+            _registeredWaitHandle = System.Threading.ThreadPool.RegisterWaitForSingleObject(_showWindowWaitHandle, ShowWindowCallback, null, -1, false);
 
             LoadGestures(); // Load data first
 
