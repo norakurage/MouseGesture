@@ -80,12 +80,22 @@
     <Compile Include="MainForm.Designer.cs">
       <DependentUpon>MainForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="TrayIconManager.cs" />
+    <Compile Include="ProfileManager.cs" />
+    <Compile Include="GestureEngine.cs" />
     <Compile Include="MouseHook.cs" />
     <Compile Include="Models.cs" />
     <Compile Include="NativeMethods.cs" />
     <Compile Include="KeyUtils.cs" />
     <Compile Include="ProcessUtils.cs" />
     <Compile Include="FeedbackForm.cs" />
+    <Compile Include="UI\FeedbackOverlay.cs" />
+    <Compile Include="UI\OpenAppSelectorDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="UI\GroupEditorDialogs.cs" />
+    <Compile Include="GestureEditController.cs" />
+    <Compile Include="UIInitializer.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <EmbeddedResource Include="MainForm.resx">
