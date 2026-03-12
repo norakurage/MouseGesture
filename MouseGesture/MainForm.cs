@@ -16,18 +16,12 @@ namespace WindowsFormsApp1
 {
     public partial class Form1 : Form
     {
-        private MouseHook _mouseHook;
-        private bool _isRightButtonDown = false;
-        private MousePoint _startPoint;
-        private List<string> _gestureDirections = new List<string>();
-        private const int MOVEMENT_THRESHOLD = 20;
         private string SettingsFilePath => Path.Combine(Application.StartupPath, "gestures.xml");
-        private const int MAX_GESTURE_STEPS = 8;
 
-        // Data binding
-        private BindingList<GestureMap> _gestureMaps = new BindingList<GestureMap>();
-
-
+        // 新しいコンポーネント
+        private ProfileManager _profileManager;
+        private GestureEngine _gestureEngine;
+        private TrayIconManager _trayIconManager;
 
         // UI Controls
         private Button _btnAddGesture;
@@ -38,21 +32,7 @@ namespace WindowsFormsApp1
         // Real-time feedback
         private Form _feedbackForm;
         private Label _feedbackLabel;
-
-        // Immediate Execution
-        private bool _gestureExecuted = false;
-        private Timer _feedbackHideTimer;
         private Timer _feedbackFadeTimer;
-
-        // App Profiles
-        private List<AppProfile> _appProfiles = new List<AppProfile>();
-        private BindingList<GestureMap> _appGestureMaps = new BindingList<GestureMap>();
-        private AppProfile _currentAppProfile;
-
-        // Group Profiles
-        private List<GroupProfile> _groupProfiles = new List<GroupProfile>();
-        private BindingList<GestureMap> _groupGestureMaps = new BindingList<GestureMap>();
-        private GroupProfile _currentGroupProfile;
 
         // UI Controls - Tabs
         private TabControl _tabControl;
@@ -88,18 +68,10 @@ namespace WindowsFormsApp1
         private volatile bool _isClosing = false;
 
         // System Tray
-        private NotifyIcon _notifyIcon;
         private bool _realClose = false; // 本当に終了する場合のみ true
         
         // Auto Start
         private CheckBox _chkAutoStart;
-
-        // Performance & Thread Safety
-        private int _lastFeedbackUpdateTick = 0;
-        private const int FEEDBACK_UPDATE_INTERVAL_MS = 7; // 7ms = 144fps for smoother feedback
-
-        // ジェスチャー開始時のターゲットウィンドウ（フォーカス復元用）
-        private IntPtr _targetWindowHandle = IntPtr.Zero;
 
         // シングルインスタンス制御
         private System.Threading.EventWaitHandle _showWindowWaitHandle;
@@ -109,79 +81,6 @@ namespace WindowsFormsApp1
 
         {
             InitializeComponent();
-        }
-
-        private void InitializeTrayIcon()
-        {
-            // コンテキストメニュー
-            var menu = new ContextMenuStrip();
-            var menuOpen = new ToolStripMenuItem("設定を開く");
-            menuOpen.Click += (s, e) => RestoreFromTray();
-            menu.Items.Add(menuOpen);
-            menu.Items.Add(new ToolStripSeparator());
-            var menuExit = new ToolStripMenuItem("終了");
-            menuExit.Click += (s, e) =>
-            {
-                _realClose = true;
-                Application.Exit();
-            };
-            menu.Items.Add(menuExit);
-
-            _notifyIcon = new NotifyIcon();
-            _notifyIcon.Text = "Mouse Gesture";
-            _notifyIcon.Icon = this.Icon ?? SystemIcons.Application;
-            _notifyIcon.ContextMenuStrip = menu;
-            _notifyIcon.Visible = true;
-
-            // ダブルクリックで設定ウィンドウを表示
-            _notifyIcon.DoubleClick += (s, e) => RestoreFromTray();
-        }
-
-        private bool GetAutoStartStatus()
-        {
-            try
-            {
-                using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", false))
-                {
-                    if (key != null)
-                    {
-                        object value = key.GetValue("MouseGesture");
-                        if (value != null)
-                        {
-                            string expectedPath = $"\"{Application.ExecutablePath}\"";
-                            return value.ToString() == expectedPath || value.ToString() == Application.ExecutablePath;
-                        }
-                    }
-                }
-            }
-            catch { }
-            return false;
-        }
-
-        private void ChkAutoStart_CheckedChanged(object sender, EventArgs e)
-        {
-            try
-            {
-                using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true))
-                {
-                    if (_chkAutoStart.Checked)
-                    {
-                        key.SetValue("MouseGesture", $"\"{Application.ExecutablePath}\"");
-                    }
-                    else
-                    {
-                        key.DeleteValue("MouseGesture", false);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"スタートアップの設定に失敗しました: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                // 元に戻す
-                _chkAutoStart.CheckedChanged -= ChkAutoStart_CheckedChanged;
-                _chkAutoStart.Checked = !_chkAutoStart.Checked;
-                _chkAutoStart.CheckedChanged += ChkAutoStart_CheckedChanged;
-            }
         }
 
         private void RestoreFromTray()
@@ -204,7 +103,7 @@ namespace WindowsFormsApp1
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            if (!_realClose && e.CloseReason == CloseReason.UserClosing)
+            if (_trayIconManager != null && !_trayIconManager.RealClose && e.CloseReason == CloseReason.UserClosing)
             {
                 // ×ボタンはトレイへ格納するだけ
                 e.Cancel = true;
@@ -214,17 +113,15 @@ namespace WindowsFormsApp1
             {
                 // 本当に終了する
                 _isClosing = true;
-                _mouseHook?.Stop();
+                _gestureEngine?.Stop();
                 
                 _registeredWaitHandle?.Unregister(null);
                 _showWindowWaitHandle?.Dispose();
 
-                SaveGestures();
-                if (_notifyIcon != null)
-                {
-                    _notifyIcon.Visible = false;
-                    _notifyIcon.Dispose();
-                }
+                _profileManager?.SaveGestures();
+                _trayIconManager?.Dispose();
+                _gestureEngine?.Dispose();
+
                 base.OnFormClosing(e);
             }
         }
@@ -237,31 +134,65 @@ namespace WindowsFormsApp1
             _showWindowWaitHandle = new System.Threading.EventWaitHandle(false, System.Threading.EventResetMode.AutoReset, "MouseGestureApp_ShowWindowEvent");
             _registeredWaitHandle = System.Threading.ThreadPool.RegisterWaitForSingleObject(_showWindowWaitHandle, ShowWindowCallback, null, -1, false);
 
-            LoadGestures(); // Load data first
+            _profileManager = new ProfileManager(SettingsFilePath);
+            _profileManager.LoadGestures();
 
             InitializeCustomUI(); // Create Tabs and move controls
             InitializeAddButton(); // Add buttons
             ApplyModernTheme(); // Apply theme to all controls
-            InitializeTrayIcon(); // System tray
             
-            _mouseHook = new MouseHook();
-            _mouseHook.RightButtonDown += OnRightButtonDown;
-            _mouseHook.RightButtonUp += OnRightButtonUp;
-            _mouseHook.LeftButtonDown += OnLeftButtonDown;
-            _mouseHook.MiddleButtonDown += OnMiddleButtonDown;
-            _mouseHook.XButtonDown += OnXButtonDown;
-            _mouseHook.MouseMove += OnMouseMove;
-            _mouseHook.MouseWheel += OnMouseWheel;
-            _mouseHook.Start();
-
-            // Feedback Timer
-            _feedbackHideTimer = new Timer();
-            _feedbackHideTimer.Interval = 750; // 0.75 seconds delay
-            _feedbackHideTimer.Tick += (s, args) => 
+            _trayIconManager = new TrayIconManager(this.Icon, "Mouse Gesture", RestoreFromTray, Application.Exit);
+            
+            _gestureEngine = new GestureEngine(_profileManager)
             {
-                _feedbackHideTimer.Stop();
-                HideRealTimeFeedback();
+                OnUpdateFeedback = UpdateRealTimeFeedback,
+                OnHideFeedback = HideRealTimeFeedback,
+                OnHideFeedbackDelayed = (delayMsg) => 
+                {
+                    // Delay logic
+                    var tmr = new Timer { Interval = delayMsg };
+                    tmr.Tick += (s, args) => 
+                    {
+                        tmr.Stop();
+                        tmr.Dispose();
+                        HideRealTimeFeedback();
+                    };
+                    tmr.Start();
+                },
+                IsRecordingGesture = () => _isRecordingGesture,
+                IsListeningForKey = () => _isListeningForKey,
+                OnCancelEditingMode = () => this.Invoke(new Action(CancelEditingMode)),
+                OnGestureRecorded = (gesture) => 
+                {
+                    this.Invoke(new Action(() => 
+                    {
+                        if (_editingRowIndex >= 0 && _editingList != null && _editingRowIndex < _editingList.Count)
+                        {
+                            _editingList[_editingRowIndex].Gesture = gesture;
+                            UpdateGestureLabel($"記録完了: {gesture}");
+                            
+                            if (_editingGrid != null)
+                            {
+                                foreach (DataGridViewColumn col in _editingGrid.Columns)
+                                {
+                                    if (col.HeaderText == "ジェスチャー")
+                                    {
+                                        _editingGrid.Rows[_editingRowIndex].Cells[col.Index].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
+                                        break;
+                                    }
+                                }
+                                _editingGrid.Refresh();
+                            }
+                            _isRecordingGesture = false;
+                            _editingRowIndex = -1;
+                            _editingGrid = null;
+                            _editingList = null;
+                            _profileManager.SaveGestures();
+                        }
+                    }));
+                }
             };
+            _gestureEngine.Start();
 
             // Feedback Fade Timer
             _feedbackFadeTimer = new Timer();
@@ -289,27 +220,22 @@ namespace WindowsFormsApp1
 
             // Setup Global Grid
             SetupGridProperties(dgvGestures);
-            dgvGestures.DataSource = _gestureMaps;
+            dgvGestures.DataSource = _profileManager.GlobalGestureMaps;
             
             // Setup App Grid
             SetupGridProperties(_dgvAppGestures);
-            _dgvAppGestures.DataSource = _appGestureMaps;
+            _dgvAppGestures.DataSource = _profileManager.CurrentAppGestureMaps;
 
             // Setup Group Grid
             if (_dgvGroupGestures != null)
             {
                 SetupGridProperties(_dgvGroupGestures);
-                _dgvGroupGestures.DataSource = _groupGestureMaps;
+                _dgvGroupGestures.DataSource = _profileManager.CurrentGroupGestureMaps;
             }
 
             // Handle clicks outside grid to commit edit
             this.MouseDown += EndEditOnMouseDown;
             lblGesture.MouseDown += EndEditOnMouseDown;
-            // Grid handlers are added in SetupGridProperties, but keeping existing explicit ones if they were important
-            // Actually, SetupGridProperties adds them. I will allow them to be added or remove redundancy.
-            // Existing code layout had them. I'll re-add them to be safe and consistent with previous state.
-            // Grid handlers are added in SetupGridProperties.
-            // Explicit handlers removed to avoid double registration.
             
              // Select first app if available
             if (_cmbApps.Items.Count > 0)
@@ -345,8 +271,18 @@ namespace WindowsFormsApp1
             _chkAutoStart.ForeColor = Color.White;
             _chkAutoStart.Location = new Point(10, 10);
             _chkAutoStart.AutoSize = true;
-            _chkAutoStart.Checked = GetAutoStartStatus();
-            _chkAutoStart.CheckedChanged += ChkAutoStart_CheckedChanged;
+            _chkAutoStart.Checked = _trayIconManager != null ? _trayIconManager.GetAutoStartStatus(Application.ExecutablePath) : false;
+            if (_trayIconManager == null) 
+            {
+                // Fallback for before initialization
+                var tempManager = new TrayIconManager(null, "", null, null);
+                _chkAutoStart.Checked = tempManager.GetAutoStartStatus(Application.ExecutablePath);
+                tempManager.Dispose();
+            }
+            _chkAutoStart.CheckedChanged += (s, e) =>
+            {
+                _trayIconManager?.RegisterAutoStart(_chkAutoStart.Checked, Application.ExecutablePath);
+            };
             
             panelGlobalTop.Controls.Add(_chkAutoStart);
 
@@ -399,10 +335,10 @@ namespace WindowsFormsApp1
             _chkDisableApp.AutoSize = true;
             _chkDisableApp.CheckedChanged += (s, e) => 
             {
-                if (_currentAppProfile != null)
+                if (_profileManager.CurrentAppProfile != null)
                 {
-                    _currentAppProfile.Disabled = _chkDisableApp.Checked;
-                    SaveGestures();
+                    _profileManager.CurrentAppProfile.Disabled = _chkDisableApp.Checked;
+                    _profileManager.SaveGestures();
                 }
             };
 
@@ -543,141 +479,10 @@ namespace WindowsFormsApp1
         }
 
 
-        private void LoadGestures()
-        {
-            try
-            {
-                if (File.Exists(SettingsFilePath))
-                {
-                    string rootName = "";
-                    using (System.Xml.XmlReader reader = System.Xml.XmlReader.Create(SettingsFilePath))
-                    {
-                        if (reader.MoveToContent() == System.Xml.XmlNodeType.Element)
-                        {
-                            rootName = reader.Name;
-                        }
-                    }
-
-                    if (rootName == "GestureConfig")
-                    {
-                        XmlSerializer serializer = new XmlSerializer(typeof(GestureConfig));
-                        using (FileStream fs = new FileStream(SettingsFilePath, FileMode.Open))
-                        {
-                            var config = (GestureConfig)serializer.Deserialize(fs);
-                            _appProfiles = config.AppProfiles;
-                            if (config.GroupProfiles != null)
-                                _groupProfiles = config.GroupProfiles;
-                            else
-                                _groupProfiles = new List<GroupProfile>();
-                        }
-                    }
-                    else if (rootName == "ArrayOfAppProfile")
-                    {
-                        XmlSerializer serializer = new XmlSerializer(typeof(List<AppProfile>));
-                        using (FileStream fs = new FileStream(SettingsFilePath, FileMode.Open))
-                        {
-                            _appProfiles = (List<AppProfile>)serializer.Deserialize(fs);
-                        }
-                        _groupProfiles = new List<GroupProfile>();
-                    }
-                    else
-                    {
-                        // Fallback: Try loading old format (List<GestureMap>) or unknown
-                        // This handles "ArrayOfGestureMap"
-                        XmlSerializer serializer = new XmlSerializer(typeof(List<GestureMap>));
-                        using (FileStream fs = new FileStream(SettingsFilePath, FileMode.Open))
-                        {
-                            var loadedGestures = (List<GestureMap>)serializer.Deserialize(fs);
-                            _appProfiles.Clear();
-                            _appProfiles.Add(new AppProfile { AppName = "Global", Gestures = loadedGestures });
-                        }
-                        _groupProfiles = new List<GroupProfile>();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"設定の読み込みに失敗しました: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-
-            // Ensure Global profile exists
-            if (_appProfiles.Count == 0 || !_appProfiles.Any(p => string.IsNullOrEmpty(p.AppPath)))
-            {
-                var global = _appProfiles.FirstOrDefault(p => string.IsNullOrEmpty(p.AppPath));
-                if (global == null)
-                {
-                    global = new AppProfile { AppName = "Global", AppPath = "" };
-                    _appProfiles.Insert(0, global);
-                }
-            }
-
-            // Populate Main Global Binding List
-            var globalProfile = _appProfiles.First(p => string.IsNullOrEmpty(p.AppPath));
-            _gestureMaps.Clear();
-            foreach(var g in globalProfile.Gestures) _gestureMaps.Add(g);
-
-            foreach (var profile in _appProfiles)
-            {
-                profile.RebuildDictionary();
-            }
-            foreach (var group in _groupProfiles)
-            {
-                group.RebuildDictionary();
-            }
-        }
-
-        private void SaveGestures()
-        {
-            try
-            {
-                // Sync Global
-                var globalProfile = _appProfiles.First(p => string.IsNullOrEmpty(p.AppPath));
-                globalProfile.Gestures = _gestureMaps.ToList();
-
-                // Sync Current App (if selected)
-                if (_currentAppProfile != null)
-                {
-                    _currentAppProfile.Gestures = _appGestureMaps.ToList();
-                }
-
-                // Sync Current Group (if selected)
-                if (_currentGroupProfile != null)
-                {
-                    _currentGroupProfile.Gestures = _groupGestureMaps.ToList();
-                }
-
-                // Rebuild Dictionaries for fast lookup
-                foreach (var profile in _appProfiles)
-                {
-                    profile.RebuildDictionary();
-                }
-                foreach (var group in _groupProfiles)
-                {
-                    group.RebuildDictionary();
-                }
-
-                GestureConfig config = new GestureConfig
-                {
-                    AppProfiles = _appProfiles,
-                    GroupProfiles = _groupProfiles
-                };
-
-                XmlSerializer serializer = new XmlSerializer(typeof(GestureConfig));
-                using (FileStream fs = new FileStream(SettingsFilePath, FileMode.Create))
-                {
-                    serializer.Serialize(fs, config);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"設定の保存に失敗しました: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
         private void RefreshAppList()
         {
             _cmbApps.Items.Clear();
-            foreach (var app in _appProfiles.Where(a => !string.IsNullOrEmpty(a.AppPath)))
+            foreach (var app in _profileManager.AppProfiles.Where(a => !string.IsNullOrEmpty(a.AppPath)))
             {
                 _cmbApps.Items.Add(app);
             }
@@ -687,7 +492,7 @@ namespace WindowsFormsApp1
         private void RefreshGroupList()
         {
             _cmbGroups.Items.Clear();
-            foreach (var group in _groupProfiles)
+            foreach (var group in _profileManager.GroupProfiles)
             {
                 _cmbGroups.Items.Add(group);
             }
@@ -696,8 +501,8 @@ namespace WindowsFormsApp1
                 _cmbGroups.SelectedIndex = 0;
             else
             {
-                _currentGroupProfile = null;
-                _groupGestureMaps.Clear();
+                _profileManager.CurrentGroupProfile = null;
+                _profileManager.CurrentGroupGestureMaps.Clear();
                 _dgvGroupGestures?.Refresh();
             }
         }
@@ -710,11 +515,11 @@ namespace WindowsFormsApp1
             {
                 if (MessageBox.Show($"アプリ '{profile.AppName}' の設定を削除しますか？", "確認", MessageBoxButtons.YesNo) == DialogResult.Yes)
                 {
-                    _appProfiles.Remove(profile);
+                    _profileManager.AppProfiles.Remove(profile);
                     RefreshAppList();
-                    _currentAppProfile = null;
-                    _appGestureMaps.Clear();
-                    SaveGestures();
+                    _profileManager.CurrentAppProfile = null;
+                    _profileManager.CurrentAppGestureMaps.Clear();
+                    _profileManager.SaveGestures();
                 }
             }
         }
@@ -723,26 +528,19 @@ namespace WindowsFormsApp1
         {
             if (_cmbApps.SelectedItem is AppProfile profile)
             {
-                // Save previous if needed? We use BindingList so it should be fine if we sync before save.
-                // But we need to sync back to the object when switching AWAY? 
-                // Actually the current object IS the one in the list.
-                // But _appGestureMaps is a separate BindingList. 
-                
                 // Sync previous
-                if (_currentAppProfile != null)
+                if (_profileManager.CurrentAppProfile != null)
                 {
-                     _currentAppProfile.Gestures = _appGestureMaps.ToList();
+                     _profileManager.CurrentAppProfile.Gestures = _profileManager.CurrentAppGestureMaps.ToList();
                 }
 
-                _currentAppProfile = profile;
+                _profileManager.CurrentAppProfile = profile;
                 
-                // Update Checkbox without triggering event (or ensure handler is idempotent)
-                // The handler saves which is fine, but redundant. 
-                // We can just set checked.
+                // Update Checkbox without triggering event
                 _chkDisableApp.Checked = profile.Disabled;
 
-                _appGestureMaps.Clear();
-                foreach(var g in profile.Gestures) _appGestureMaps.Add(g);
+                _profileManager.CurrentAppGestureMaps.Clear();
+                foreach(var g in profile.Gestures) _profileManager.CurrentAppGestureMaps.Add(g);
                 
                 _dgvAppGestures.Refresh();
             }
@@ -798,7 +596,7 @@ namespace WindowsFormsApp1
                         {
                             string path = ProcessUtils.GetProcessPath((uint)p.Id);
                             if (!string.IsNullOrEmpty(path) && !addedPaths.Contains(path) && 
-                                !_appProfiles.Any(profile => string.Equals(profile.AppPath, path, StringComparison.OrdinalIgnoreCase)))
+                                !_profileManager.AppProfiles.Any(profile => string.Equals(profile.AppPath, path, StringComparison.OrdinalIgnoreCase)))
                             {
                                 addedPaths.Add(path);
                                 string exeName = Path.GetFileNameWithoutExtension(path);
@@ -827,7 +625,7 @@ namespace WindowsFormsApp1
                     if (selected != null)
                     {
                         string path = selected.AppPath;
-                        if (_appProfiles.Any(p => p.AppPath != null && p.AppPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
+                        if (_profileManager.AppProfiles.Any(p => p.AppPath != null && p.AppPath.Equals(path, StringComparison.OrdinalIgnoreCase)))
                         {
                             MessageBox.Show("このアプリは既に追加されています。");
                         }
@@ -838,11 +636,11 @@ namespace WindowsFormsApp1
                                 AppPath = path, 
                                 AppName = selected.AppName 
                             };
-                            _appProfiles.Add(newProfile);
+                            _profileManager.AppProfiles.Add(newProfile);
                             RefreshAppList();
                             _cmbApps.SelectedItem = newProfile;
                             UpdateGestureLabel($"アプリ '{newProfile.AppName}' を追加しました。");
-                            SaveGestures();
+                            _profileManager.SaveGestures();
                         }
                     }
                 }
@@ -910,12 +708,12 @@ namespace WindowsFormsApp1
             _btnAddAppGesture.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             _btnAddAppGesture.Click += (s, e) => 
             {
-                 if (_currentAppProfile == null) 
+                 if (_profileManager.CurrentAppProfile == null) 
                  {
                      MessageBox.Show("アプリを選択してください。");
                      return;
                  }
-                 _appGestureMaps.Add(new GestureMap());
+                 _profileManager.CurrentAppGestureMaps.Add(new GestureMap());
                  if (_dgvAppGestures.Rows.Count > 0)
                      _dgvAppGestures.FirstDisplayedScrollingRowIndex = _dgvAppGestures.Rows.Count - 1;
                  
@@ -939,12 +737,12 @@ namespace WindowsFormsApp1
             _btnAddGroupGesture.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             _btnAddGroupGesture.Click += (s, e) => 
             {
-                 if (_currentGroupProfile == null) 
+                 if (_profileManager.CurrentGroupProfile == null) 
                  {
                      MessageBox.Show("グループを選択してください。");
                      return;
                  }
-                 _groupGestureMaps.Add(new GestureMap());
+                 _profileManager.CurrentGroupGestureMaps.Add(new GestureMap());
                  if (_dgvGroupGestures.Rows.Count > 0)
                      _dgvGroupGestures.FirstDisplayedScrollingRowIndex = _dgvGroupGestures.Rows.Count - 1;
                  
@@ -961,16 +759,12 @@ namespace WindowsFormsApp1
             // Determine which list to add to based on active tab
             if (_tabControl.SelectedTab == _tabGlobal)
             {
-                _gestureMaps.Add(new GestureMap());
+                _profileManager.GlobalGestureMaps.Add(new GestureMap());
                 if (dgvGestures.Rows.Count > 0)
                 {
                     dgvGestures.FirstDisplayedScrollingRowIndex = dgvGestures.Rows.Count - 1;
                 }
                 UpdateGestureLabel("ジェスチャーフィールドをダブルクリックで追加");
-            }
-            else
-            {
-                // Should be handled by the other button, but just in case
             }
         }
 
@@ -978,14 +772,14 @@ namespace WindowsFormsApp1
         {
             if (_cmbGroups.SelectedItem is GroupProfile profile)
             {
-                if (_currentGroupProfile != null)
+                if (_profileManager.CurrentGroupProfile != null)
                 {
-                     _currentGroupProfile.Gestures = _groupGestureMaps.ToList();
+                     _profileManager.CurrentGroupProfile.Gestures = _profileManager.CurrentGroupGestureMaps.ToList();
                 }
 
-                _currentGroupProfile = profile;
-                _groupGestureMaps.Clear();
-                foreach(var g in profile.Gestures) _groupGestureMaps.Add(g);
+                _profileManager.CurrentGroupProfile = profile;
+                _profileManager.CurrentGroupGestureMaps.Clear();
+                foreach(var g in profile.Gestures) _profileManager.CurrentGroupGestureMaps.Add(g);
                 
                 _dgvGroupGestures.Refresh();
             }
@@ -1015,15 +809,15 @@ namespace WindowsFormsApp1
                     string name = txt.Text.Trim();
                     if (!string.IsNullOrEmpty(name))
                     {
-                         if (_groupProfiles.Any(g => g.GroupName == name)) {
+                         if (_profileManager.GroupProfiles.Any(g => g.GroupName == name)) {
                              MessageBox.Show("同じ名前のグループが既に存在します。");
                              return;
                          }
                          var newGroup = new GroupProfile { GroupName = name };
-                         _groupProfiles.Add(newGroup);
+                         _profileManager.GroupProfiles.Add(newGroup);
                          RefreshGroupList();
                          _cmbGroups.SelectedItem = newGroup;
-                         SaveGestures();
+                         _profileManager.SaveGestures();
                     }
                 }
             }
@@ -1035,16 +829,16 @@ namespace WindowsFormsApp1
             {
                 if (MessageBox.Show($"グループ '{profile.GroupName}' を削除しますか？", "確認", MessageBoxButtons.YesNo) == DialogResult.Yes)
                 {
-                    _groupProfiles.Remove(profile);
+                    _profileManager.GroupProfiles.Remove(profile);
                     RefreshGroupList();
-                    SaveGestures();
+                    _profileManager.SaveGestures();
                 }
             }
         }
 
         private void BtnEditGroupApps_Click(object sender, EventArgs e)
         {
-             if (_currentGroupProfile == null) return;
+             if (_profileManager.CurrentGroupProfile == null) return;
 
              using (Form listForm = new Form())
              {
@@ -1057,10 +851,10 @@ namespace WindowsFormsApp1
                 chkList.CheckOnClick = true;
 
                 // List all apps from AppProfiles (except Global)
-                var apps = _appProfiles.Where(p => !string.IsNullOrEmpty(p.AppPath)).ToList();
+                var apps = _profileManager.AppProfiles.Where(p => !string.IsNullOrEmpty(p.AppPath)).ToList();
                 foreach(var app in apps)
                 {
-                    bool isChecked = _currentGroupProfile.TargetAppPaths.Contains(app.AppPath);
+                    bool isChecked = _profileManager.CurrentGroupProfile.TargetAppPaths.Contains(app.AppPath);
                     chkList.Items.Add(app.AppName + " (" + Path.GetFileName(app.AppPath) + ")", isChecked); 
                     // Store AppPath in Tag? Tag is not easily available in Items.Add
                     // Since we iterate in same order, we can rely on index matching for the loop below.
@@ -1078,17 +872,17 @@ namespace WindowsFormsApp1
 
                 if (listForm.ShowDialog(this) == DialogResult.OK)
                 {
-                    _currentGroupProfile.TargetAppPaths.Clear();
+                    _profileManager.CurrentGroupProfile.TargetAppPaths.Clear();
                     for(int i=0; i<chkList.Items.Count; i++)
                     {
                         if (chkList.GetItemChecked(i))
                         {
                             // Map back to app.
                              var app = apps[i]; // Assuming order is preserved
-                             _currentGroupProfile.TargetAppPaths.Add(app.AppPath);
+                             _profileManager.CurrentGroupProfile.TargetAppPaths.Add(app.AppPath);
                         }
                     }
-                    SaveGestures();
+                    _profileManager.SaveGestures();
                 }
              }
         }
@@ -1199,7 +993,7 @@ namespace WindowsFormsApp1
                         }
                         
                         list.RemoveAt(e.RowIndex);
-                        SaveGestures();
+                        _profileManager.SaveGestures();
                     }
                 }
             }
@@ -1315,7 +1109,7 @@ namespace WindowsFormsApp1
                     _editingGrid = null;
                     _editingList = null;
                     UpdateGestureLabel("キーを割り当てました。");
-                    SaveGestures();
+                    _profileManager.SaveGestures();
                 }
                 return true;
             }
@@ -1323,328 +1117,6 @@ namespace WindowsFormsApp1
         }
 
 
-
-        private void OnRightButtonDown(object sender, MouseHookEventArgs e)
-        {
-            // Check if current app is disabled
-            string currentAppPath = ProcessUtils.GetActiveProcessPath();
-            if (!string.IsNullOrEmpty(currentAppPath))
-            {
-                 var profile = _appProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && currentAppPath.Equals(p.AppPath, StringComparison.OrdinalIgnoreCase));
-                 // Fallback to filename match
-                 if (profile == null)
-                 {
-                     string appName = Path.GetFileName(currentAppPath);
-                     try
-                     {
-                         profile = _appProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && 
-                             string.Equals(Path.GetFileName(p.AppPath), appName, StringComparison.OrdinalIgnoreCase));
-                     }
-                     catch {}
-                 }
-
-                 if (profile != null && profile.Disabled)
-                 {
-                     // Do not handle, do not consume event.
-                     return;
-                 }
-            }
-
-            // ジェスチャー開始時のターゲットウィンドウを記録（実行時のフォーカス復元用）
-            _targetWindowHandle = NativeMethods.GetForegroundWindow();
-
-            _isRightButtonDown = true;
-            _gestureExecuted = false;
-            _startPoint = e.Point;
-            _gestureDirections.Clear();
-
-            // Reset feedback state for new gesture
-            _feedbackHideTimer?.Stop();
-            HideRealTimeFeedback();
-            
-            UpdateRealTimeFeedback("", new Point(e.Point.X, e.Point.Y));
-            
-            e.Handled = true;
-        }
-
-        private void OnRightButtonUp(object sender, MouseHookEventArgs e)
-        {
-            if (!_isRightButtonDown) return;
-
-            _isRightButtonDown = false;
-            
-            // Only hide feedback if we're not waiting for an immediate gesture feedback to expire
-            if (_feedbackHideTimer == null || !_feedbackHideTimer.Enabled)
-            {
-                HideRealTimeFeedback();
-            }
-            
-            string finalGesture = string.Join("", _gestureDirections);
-            e.Handled = true;
-
-
-
-            // 2. Gesture Recording
-            if (_isRecordingGesture && _editingRowIndex >= 0 && _editingList != null && _editingRowIndex < _editingList.Count)
-            {
-                if (!string.IsNullOrEmpty(finalGesture))
-                {
-                    _editingList[_editingRowIndex].Gesture = finalGesture;
-                    UpdateGestureLabel($"記録完了: {finalGesture}");
-                    
-                    // Reset UI colors manually here or call CancelEditingMode to cleanup?
-                    // CancelEditingMode clears flags, so we should do manual cleanup then clear flags effectively.
-                    // Or efficient way:
-                    if (_editingGrid != null)
-                    {
-                        foreach (DataGridViewColumn col in _editingGrid.Columns)
-                        {
-                            if (col.HeaderText == "ジェスチャー")
-                            {
-                                _editingGrid.Rows[_editingRowIndex].Cells[col.Index].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
-                                break;
-                            }
-                        }
-                        _editingGrid.Refresh();
-                    }
-                    _isRecordingGesture = false;
-                    _editingRowIndex = -1;
-                    _editingGrid = null;
-                    _editingList = null;
-                    SaveGestures();
-                }
-                else
-                {
-                    // Empty gesture -> Cancel
-                    this.Invoke(new Action(() => CancelEditingMode()));
-                }
-                return;
-            }
-
-            // 3. Key Listening Cancel
-            if (_isListeningForKey)
-            {
-                this.Invoke(new Action(() => CancelEditingMode()));
-                return;
-            }
-
-            // 4. Normal Execution
-            if (_gestureExecuted)
-            {
-                // Do nothing if already executed
-            }
-            else if (!string.IsNullOrEmpty(finalGesture))
-            {
-                ExecuteGesture(finalGesture);
-            }
-            else
-            {
-                SendRightClick(e.Point);
-            }
-        }
-
-
-
-        private void SendRightClick(MousePoint p)
-        {
-            // Perform click asynchronously to avoid blocking the hook and to add delay
-            Task.Run(async () => 
-            {
-                var inputDown = new MouseHook.INPUT
-                {
-                    type = MouseHook.INPUT_MOUSE,
-                    U = new MouseHook.InputUnion
-                    {
-                        mi = new MouseHook.MOUSEINPUT
-                        {
-                            dwFlags = MouseHook.MOUSEEVENTF_RIGHTDOWN,
-                            dwExtraInfo = MouseHook.INJECTED_EVENT_ID
-                        }
-                    }
-                };
-
-                MouseHook.SendInput(1, new[] { inputDown }, MouseHook.INPUT.Size);
-
-                await Task.Delay(50); 
-
-                var inputUp = new MouseHook.INPUT
-                {
-                    type = MouseHook.INPUT_MOUSE,
-                    U = new MouseHook.InputUnion
-                    {
-                        mi = new MouseHook.MOUSEINPUT
-                        {
-                            dwFlags = MouseHook.MOUSEEVENTF_RIGHTUP,
-                            dwExtraInfo = MouseHook.INJECTED_EVENT_ID
-                        }
-                    }
-                };
-
-                MouseHook.SendInput(1, new[] { inputUp }, MouseHook.INPUT.Size);
-            });
-        }
-
-        private void OnMouseMove(object sender, MouseHookEventArgs e)
-        {
-            if (!_isRightButtonDown) return;
-
-            int dx = e.Point.X - _startPoint.X;
-            int dy = e.Point.Y - _startPoint.Y;
-
-            if (Math.Abs(dx) > MOVEMENT_THRESHOLD || Math.Abs(dy) > MOVEMENT_THRESHOLD)
-            {
-                string direction = "";
-                if (Math.Abs(dx) > Math.Abs(dy))
-                    direction = dx > 0 ? "→" : "←";
-                else
-                    direction = dy > 0 ? "↓" : "↑";
-
-                if (_gestureDirections.Count < MAX_GESTURE_STEPS && (_gestureDirections.Count == 0 || _gestureDirections.Last() != direction))
-                {
-                    _gestureDirections.Add(direction);
-                    // UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
-                    _startPoint = e.Point;
-                }
-                else if (_gestureDirections.Count > 0 && _gestureDirections.Last() == direction)
-                {
-                    _startPoint = e.Point;
-                }
-            }
-            else
-            {
-                if (_gestureDirections.Count > 0)
-                {
-                    string last = _gestureDirections.Last();
-                    if ((last == "→" && dx > 0) ||
-                        (last == "←" && dx < 0) ||
-                        (last == "↓" && dy > 0) ||
-                        (last == "↑" && dy < 0))
-                    {
-                        _startPoint = e.Point;
-                    }
-                }
-            }
-            
-            string currentGesture = string.Join("", _gestureDirections);
-            
-            int now = Environment.TickCount;
-            if (unchecked(now - _lastFeedbackUpdateTick) >= FEEDBACK_UPDATE_INTERVAL_MS)
-            {
-                _lastFeedbackUpdateTick = now;
-                UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
-            }
-
-            // Immediate execution logic removed for gestures
-            /*
-            var map = _gestureMaps.FirstOrDefault(m => m.Gesture == currentGesture);
-            if (map != null)
-            {
-                ExecuteGesture(currentGesture);
-                _gestureExecuted = true;
-                _gestureDirections.Clear();
-                _startPoint = e.Point; 
-                UpdateGestureLabel($"即時実行: {currentGesture}");
-                HideRealTimeFeedback();
-            }
-            */
-        }
-
-        private void OnMouseWheel(object sender, MouseHookEventArgs e)
-        {
-            if (!_isRightButtonDown) return;
-
-            if (_gestureDirections.Count >= MAX_GESTURE_STEPS) return;
-
-            short delta = (short)((e.MouseData >> 16) & 0xFFFF);
-            if (delta == 0) return;
-
-            string direction = delta > 0 ? "⇑" : "⇓";
-
-            if (_gestureDirections.Count == 0 || _gestureDirections.Last() != direction)
-            {
-                _gestureDirections.Add(direction);
-                string currentGesture = string.Join("", _gestureDirections);
-                // UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
-                UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
-
-                // Immediate execution logic
-                if (_isRecordingGesture || _isListeningForKey) return;
-
-                var map = FindGestureMap(currentGesture);
-                if (map != null)
-                {
-                    ExecuteGesture(currentGesture);
-                    _gestureExecuted = true;
-                    _gestureDirections.Clear();
-                    // UpdateGestureLabel($"即時実行: {currentGesture}");
-                    
-                    // Show feedback for a while then hide
-                    _feedbackHideTimer.Stop();
-                    _feedbackHideTimer.Start();
-                }
-            }
-            
-            e.Handled = true;
-        }
-
-        private void OnLeftButtonDown(object sender, MouseHookEventArgs e)
-        {
-
-
-            if (!_isRightButtonDown) return;
-            AddClickGesture("L", e);
-        }
-
-        private void OnMiddleButtonDown(object sender, MouseHookEventArgs e)
-        {
-            if (!_isRightButtonDown) return;
-            AddClickGesture("M", e);
-        }
-
-        private void OnXButtonDown(object sender, MouseHookEventArgs e)
-        {
-            if (!_isRightButtonDown) return;
-            
-            int xButton = (e.MouseData >> 16) & 0xFFFF;
-            string direction = xButton == 1 ? "X1" : "X2";
-            AddClickGesture(direction, e);
-        }
-
-        private void AddClickGesture(string direction, MouseHookEventArgs e)
-        {
-            if (_gestureDirections.Count >= MAX_GESTURE_STEPS) return;
-
-            _gestureDirections.Add(direction);
-            
-            string currentGesture = string.Join("", _gestureDirections);
-            // UpdateGestureLabel(string.Join(" -> ", _gestureDirections));
-            UpdateRealTimeFeedback(currentGesture, new Point(e.Point.X, e.Point.Y));
-            
-            e.Handled = true;
-
-            // Immediate execution logic (Default now)
-            // Skip execution if recording or listening for key
-            if (_isRecordingGesture || _isListeningForKey) return;
-
-            GestureMap map = null;
-            if (!_isRecordingGesture)
-            {
-                 map = FindGestureMap(currentGesture);
-            }
-
-            if (map != null)
-            {
-                ExecuteGesture(currentGesture);
-                _gestureExecuted = true;
-                _gestureDirections.Clear();
-                _startPoint = e.Point; // Reset start point for potential future moves
-                // UpdateGestureLabel($"即時実行: {currentGesture}");
-                
-                // Show feedback for a while then hide
-                _feedbackHideTimer.Stop();
-                _feedbackHideTimer.Start();
-            }
-        }
 
         private void UpdateRealTimeFeedback(string gesture, Point location)
         {
@@ -1720,7 +1192,8 @@ namespace WindowsFormsApp1
             }
             else
             {
-                match = FindGestureMap(gesture);
+                string currentAppPath = ProcessUtils.GetActiveProcessPath();
+                match = _profileManager.FindGestureMap(gesture, currentAppPath);
             }
 
             if (match != null && !string.IsNullOrEmpty(match.Name))
@@ -1828,123 +1301,6 @@ namespace WindowsFormsApp1
             }
         }
 
-        private GestureMap FindGestureMap(string gesture)
-        {
-            string appPath = ProcessUtils.GetActiveProcessPath();
-            AppProfile appProfile = null;
-
-            if (!string.IsNullOrEmpty(appPath))
-            {
-                // 1. Try exact path match
-                appProfile = _appProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && appPath.Equals(p.AppPath, StringComparison.OrdinalIgnoreCase));
-
-                // 2. Try file name match (Process name match)
-                if (appProfile == null)
-                {
-                    try
-                    {
-                        string appName = Path.GetFileName(appPath);
-                        appProfile = _appProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && 
-                            string.Equals(Path.GetFileName(p.AppPath), appName, StringComparison.OrdinalIgnoreCase));
-                    }
-                    catch { }
-                }
-            }
-
-            GestureMap map = null;
-
-            // Priority 1: App Specific
-            if (appProfile != null)
-            {
-                // Check if this profile is currently being edited/viewed in the UI
-                if (_currentAppProfile != null && appProfile == _currentAppProfile)
-                {
-                    map = _appGestureMaps.FirstOrDefault(m => m.Gesture == gesture);
-                }
-                else
-                {
-                    appProfile.GestureDict.TryGetValue(gesture, out map);
-                }
-            }
-
-            // Priority 2: Group Specific
-            if (map == null && !string.IsNullOrEmpty(appPath))
-            {
-                foreach (var group in _groupProfiles)
-                {
-                    // Check if app is in group
-                    bool inGroup = group.TargetAppPaths.Any(p => p.Equals(appPath, StringComparison.OrdinalIgnoreCase));
-                    if (!inGroup && appProfile != null && !string.IsNullOrEmpty(appProfile.AppPath))
-                    {
-                        // Also check by exact path in profile if differ
-                        inGroup = group.TargetAppPaths.Any(p => p.Equals(appProfile.AppPath, StringComparison.OrdinalIgnoreCase));
-                    }
-                    // Handle case where TargetAppPaths might contain file names? No, assume paths.
-
-                    if (inGroup)
-                    {
-                         // Check if this group is currently being edited
-                        if (_currentGroupProfile != null && group == _currentGroupProfile)
-                        {
-                            map = _groupGestureMaps.FirstOrDefault(m => m.Gesture == gesture);
-                        }
-                        else
-                        {
-                            group.GestureDict.TryGetValue(gesture, out map);
-                        }
-
-                        if (map != null) break; // Found in highest priority group
-                    }
-                }
-            }
-
-            // Priority 3: Global
-            if (map == null)
-            {
-                // Always use the live BindingList for global gestures if currently evaluating, 
-                // but wait, global profile is always loaded into _gestureMaps. 
-                // Let's use it for the edited items but it's O(N).
-                // Actually, globalProfile is always the first appProfile.
-                var globalProfile = _appProfiles.FirstOrDefault(p => string.IsNullOrEmpty(p.AppPath));
-                if (globalProfile != null && globalProfile.GestureDict.TryGetValue(gesture, out GestureMap gm))
-                {
-                    // Check if it's the same instance from _gestureMaps for live edits
-                    map = gm;
-                }
-                
-                // Fallback to binding list if not found (for unsaved live edits)
-                if (map == null)
-                {
-                    map = _gestureMaps.FirstOrDefault(m => m.Gesture == gesture);
-                }
-            }
-
-            return map;
-        }
-
-        private void ExecuteGesture(string gesture)
-        {
-            GestureMap map = FindGestureMap(gesture);
-
-            if (map != null)
-            {
-                if (!string.IsNullOrEmpty(map.KeyBinding))
-                {
-                    this.BeginInvoke(new Action(() =>
-                    {
-                        try
-                        {
-                            string sendKeys = KeyUtils.ConvertReadableToSendKeys(map.KeyBinding);
-                            SendKeys.Send(sendKeys);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Error sending keys: {ex.Message}");
-                        }
-                    }));
-                }
-            }
-        }
     }
 
 
