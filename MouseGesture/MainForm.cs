@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -90,6 +90,9 @@ namespace WindowsFormsApp1
         // System Tray
         private NotifyIcon _notifyIcon;
         private bool _realClose = false; // 本当に終了する場合のみ true
+        
+        // Auto Start
+        private CheckBox _chkAutoStart;
 
         // Performance & Thread Safety
         private int _lastFeedbackUpdateTick = 0;
@@ -132,6 +135,53 @@ namespace WindowsFormsApp1
 
             // ダブルクリックで設定ウィンドウを表示
             _notifyIcon.DoubleClick += (s, e) => RestoreFromTray();
+        }
+
+        private bool GetAutoStartStatus()
+        {
+            try
+            {
+                using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", false))
+                {
+                    if (key != null)
+                    {
+                        object value = key.GetValue("MouseGesture");
+                        if (value != null)
+                        {
+                            string expectedPath = $"\"{Application.ExecutablePath}\"";
+                            return value.ToString() == expectedPath || value.ToString() == Application.ExecutablePath;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        private void ChkAutoStart_CheckedChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true))
+                {
+                    if (_chkAutoStart.Checked)
+                    {
+                        key.SetValue("MouseGesture", $"\"{Application.ExecutablePath}\"");
+                    }
+                    else
+                    {
+                        key.DeleteValue("MouseGesture", false);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"スタートアップの設定に失敗しました: {ex.Message}", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                // 元に戻す
+                _chkAutoStart.CheckedChanged -= ChkAutoStart_CheckedChanged;
+                _chkAutoStart.Checked = !_chkAutoStart.Checked;
+                _chkAutoStart.CheckedChanged += ChkAutoStart_CheckedChanged;
+            }
         }
 
         private void RestoreFromTray()
@@ -284,8 +334,27 @@ namespace WindowsFormsApp1
             
             // Move existing dgvGestures to Global Tab
             this.Controls.Remove(dgvGestures);
+
+            Panel panelGlobalTop = new Panel();
+            panelGlobalTop.Dock = DockStyle.Top;
+            panelGlobalTop.Height = 40;
+            panelGlobalTop.BackColor = Color.FromArgb(30, 30, 30);
+
+            _chkAutoStart = new CheckBox();
+            _chkAutoStart.Text = "コンピュータ起動時に自動で起動する";
+            _chkAutoStart.ForeColor = Color.White;
+            _chkAutoStart.Location = new Point(10, 10);
+            _chkAutoStart.AutoSize = true;
+            _chkAutoStart.Checked = GetAutoStartStatus();
+            _chkAutoStart.CheckedChanged += ChkAutoStart_CheckedChanged;
+            
+            panelGlobalTop.Controls.Add(_chkAutoStart);
+
+            _tabGlobal.Controls.Add(panelGlobalTop);
+
             _tabGlobal.Controls.Add(dgvGestures);
             dgvGestures.Dock = DockStyle.Fill;
+            dgvGestures.BringToFront(); // Ensure it fills remaining space
             
             // Setup App Tab UI
             Panel panelTop = new Panel();
