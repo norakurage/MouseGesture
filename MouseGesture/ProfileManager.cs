@@ -15,11 +15,43 @@ namespace WindowsFormsApp1
         // 共通（Global）ジェスチャー用のLiveリスト（UIバインド用）
         public BindingList<GestureMap> GlobalGestureMaps { get; private set; } = new BindingList<GestureMap>();
 
-        public AppProfile CurrentAppProfile { get; set; }
+        public AppProfile CurrentAppProfile { get; private set; }
         public BindingList<GestureMap> CurrentAppGestureMaps { get; private set; } = new BindingList<GestureMap>();
 
-        public GroupProfile CurrentGroupProfile { get; set; }
+        public GroupProfile CurrentGroupProfile { get; private set; }
         public BindingList<GestureMap> CurrentGroupGestureMaps { get; private set; } = new BindingList<GestureMap>();
+
+        public void SelectAppProfile(AppProfile profile)
+        {
+            if (CurrentAppProfile != null)
+            {
+                CurrentAppProfile.Gestures = CurrentAppGestureMaps.ToList();
+            }
+
+            CurrentAppProfile = profile;
+            CurrentAppGestureMaps.Clear();
+
+            if (profile != null && profile.Gestures != null)
+            {
+                foreach (var g in profile.Gestures) CurrentAppGestureMaps.Add(g);
+            }
+        }
+
+        public void SelectGroupProfile(GroupProfile profile)
+        {
+            if (CurrentGroupProfile != null)
+            {
+                CurrentGroupProfile.Gestures = CurrentGroupGestureMaps.ToList();
+            }
+
+            CurrentGroupProfile = profile;
+            CurrentGroupGestureMaps.Clear();
+
+            if (profile != null && profile.Gestures != null)
+            {
+                foreach (var g in profile.Gestures) CurrentGroupGestureMaps.Add(g);
+            }
+        }
 
         private readonly string _settingsFilePath;
 
