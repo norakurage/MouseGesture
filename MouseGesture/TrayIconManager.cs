@@ -58,7 +58,7 @@ namespace WindowsFormsApp1
                 {
                     if (enable)
                     {
-                        key.SetValue("MouseGesture", $"\"{executablePath}\"");
+                        key.SetValue("MouseGesture", $"\"{executablePath}\" --autostart");
                     }
                     else
                     {
@@ -84,7 +84,8 @@ namespace WindowsFormsApp1
                         if (value != null)
                         {
                             string expectedPath = $"\"{executablePath}\"";
-                            return value.ToString() == expectedPath || value.ToString() == executablePath;
+                            string valStr = value.ToString();
+                            return valStr.StartsWith(expectedPath, StringComparison.OrdinalIgnoreCase) || valStr.StartsWith(executablePath, StringComparison.OrdinalIgnoreCase);
                         }
                     }
                 }
