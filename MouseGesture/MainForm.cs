@@ -16,7 +16,7 @@ namespace WindowsFormsApp1
 {
     public partial class Form1 : Form
     {
-        private string SettingsFilePath => Path.Combine(Application.StartupPath, "gestures.xml");
+        private string SettingsFilePath => Path.Combine(AppContext.BaseDirectory, "gestures.xml");
 
         // 新しいコンポーネント
         private ProfileManager _profileManager;
@@ -70,10 +70,32 @@ namespace WindowsFormsApp1
         private System.Threading.EventWaitHandle _showWindowWaitHandle;
         private System.Threading.RegisteredWaitHandle _registeredWaitHandle;
 
-        public Form1()
+        private bool _isAutoStart;
+        private bool _firstShow = true;
 
+        public Form1(string[] args = null)
         {
             InitializeComponent();
+
+            if (args != null)
+            {
+                _isAutoStart = args.Contains("--autostart");
+            }
+        }
+
+        protected override void SetVisibleCore(bool value)
+        {
+            if (_firstShow)
+            {
+                _firstShow = false;
+
+                if (_isAutoStart)
+                {
+                    value = false;
+                }
+            }
+
+            base.SetVisibleCore(value);
         }
 
         private void RestoreFromTray()
