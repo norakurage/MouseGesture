@@ -191,7 +191,15 @@ namespace WindowsFormsApp1
             if (!string.IsNullOrEmpty(appPath))
             {
                 // 1. Try exact path match
-                appProfile = AppProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && appPath.Equals(p.AppPath, StringComparison.OrdinalIgnoreCase));
+                for (int i = 0; i < AppProfiles.Count; i++)
+                {
+                    var p = AppProfiles[i];
+                    if (!string.IsNullOrEmpty(p.AppPath) && appPath.Equals(p.AppPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        appProfile = p;
+                        break;
+                    }
+                }
 
                 // 2. Try file name match
                 if (appProfile == null)
@@ -199,8 +207,15 @@ namespace WindowsFormsApp1
                     try
                     {
                         string appName = Path.GetFileName(appPath);
-                        appProfile = AppProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) &&
-                            string.Equals(Path.GetFileName(p.AppPath), appName, StringComparison.OrdinalIgnoreCase));
+                        for (int i = 0; i < AppProfiles.Count; i++)
+                        {
+                            var p = AppProfiles[i];
+                            if (!string.IsNullOrEmpty(p.AppPath) && string.Equals(Path.GetFileName(p.AppPath), appName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                appProfile = p;
+                                break;
+                            }
+                        }
                     }
                     catch { }
                 }
@@ -219,7 +234,14 @@ namespace WindowsFormsApp1
             {
                 if (CurrentAppProfile != null && appProfile == CurrentAppProfile)
                 {
-                    map = CurrentAppGestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+                    for (int i = 0; i < CurrentAppGestureMaps.Count; i++)
+                    {
+                        if (CurrentAppGestureMaps[i].Gesture == gesture)
+                        {
+                            map = CurrentAppGestureMaps[i];
+                            break;
+                        }
+                    }
                 }
                 else
                 {
@@ -230,19 +252,43 @@ namespace WindowsFormsApp1
             // Priority 2: Group Specific
             if (map == null && !string.IsNullOrEmpty(appPath))
             {
-                foreach (var group in GroupProfiles)
+                for (int i = 0; i < GroupProfiles.Count; i++)
                 {
-                    bool inGroup = group.TargetAppPaths.Any(p => p.Equals(appPath, StringComparison.OrdinalIgnoreCase));
+                    var group = GroupProfiles[i];
+                    bool inGroup = false;
+                    for (int j = 0; j < group.TargetAppPaths.Count; j++)
+                    {
+                        if (group.TargetAppPaths[j].Equals(appPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            inGroup = true;
+                            break;
+                        }
+                    }
+
                     if (!inGroup && appProfile != null && !string.IsNullOrEmpty(appProfile.AppPath))
                     {
-                        inGroup = group.TargetAppPaths.Any(p => p.Equals(appProfile.AppPath, StringComparison.OrdinalIgnoreCase));
+                        for (int j = 0; j < group.TargetAppPaths.Count; j++)
+                        {
+                            if (group.TargetAppPaths[j].Equals(appProfile.AppPath, StringComparison.OrdinalIgnoreCase))
+                            {
+                                inGroup = true;
+                                break;
+                            }
+                        }
                     }
 
                     if (inGroup)
                     {
                         if (CurrentGroupProfile != null && group == CurrentGroupProfile)
                         {
-                            map = CurrentGroupGestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+                            for (int j = 0; j < CurrentGroupGestureMaps.Count; j++)
+                            {
+                                if (CurrentGroupGestureMaps[j].Gesture == gesture)
+                                {
+                                    map = CurrentGroupGestureMaps[j];
+                                    break;
+                                }
+                            }
                         }
                         else
                         {
@@ -257,7 +303,16 @@ namespace WindowsFormsApp1
             // Priority 3: Global
             if (map == null)
             {
-                var globalProfile = AppProfiles.FirstOrDefault(p => string.IsNullOrEmpty(p.AppPath));
+                AppProfile globalProfile = null;
+                for (int i = 0; i < AppProfiles.Count; i++)
+                {
+                    if (string.IsNullOrEmpty(AppProfiles[i].AppPath))
+                    {
+                        globalProfile = AppProfiles[i];
+                        break;
+                    }
+                }
+
                 if (globalProfile != null && globalProfile.GestureDict.TryGetValue(gesture, out GestureMap gm))
                 {
                     map = gm;
@@ -265,7 +320,14 @@ namespace WindowsFormsApp1
 
                 if (map == null)
                 {
-                    map = GlobalGestureMaps.FirstOrDefault(m => m.Gesture == gesture);
+                    for (int i = 0; i < GlobalGestureMaps.Count; i++)
+                    {
+                        if (GlobalGestureMaps[i].Gesture == gesture)
+                        {
+                            map = GlobalGestureMaps[i];
+                            break;
+                        }
+                    }
                 }
             }
 
@@ -276,14 +338,31 @@ namespace WindowsFormsApp1
         {
             if (string.IsNullOrEmpty(appPath)) return false;
 
-            var profile = AppProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) && appPath.Equals(p.AppPath, StringComparison.OrdinalIgnoreCase));
+            AppProfile profile = null;
+            for (int i = 0; i < AppProfiles.Count; i++)
+            {
+                var p = AppProfiles[i];
+                if (!string.IsNullOrEmpty(p.AppPath) && appPath.Equals(p.AppPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    profile = p;
+                    break;
+                }
+            }
+
             if (profile == null)
             {
-                string appName = Path.GetFileName(appPath);
                 try
                 {
-                    profile = AppProfiles.FirstOrDefault(p => !string.IsNullOrEmpty(p.AppPath) &&
-                        string.Equals(Path.GetFileName(p.AppPath), appName, StringComparison.OrdinalIgnoreCase));
+                    string appName = Path.GetFileName(appPath);
+                    for (int i = 0; i < AppProfiles.Count; i++)
+                    {
+                        var p = AppProfiles[i];
+                        if (!string.IsNullOrEmpty(p.AppPath) && string.Equals(Path.GetFileName(p.AppPath), appName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            profile = p;
+                            break;
+                        }
+                    }
                 }
                 catch { }
             }

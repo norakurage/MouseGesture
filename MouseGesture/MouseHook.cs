@@ -7,8 +7,8 @@ namespace WindowsFormsApp1
 {
     public class MouseHookEventArgs : EventArgs
     {
-        public MousePoint Point { get; }
-        public int MouseData { get; }
+        public MousePoint Point { get; internal set; }
+        public int MouseData { get; internal set; }
         public bool Handled { get; set; }
 
         public MouseHookEventArgs(MousePoint point, int mouseData = 0)
@@ -40,6 +40,9 @@ namespace WindowsFormsApp1
         // 他プロセスとの衝突確率を下げる（任意）
         public static readonly IntPtr INJECTED_EVENT_ID =
             new IntPtr(unchecked((int)0x12345000) ^ Process.GetCurrentProcess().Id);
+
+        // WM_MOUSEMOVE用の再利用インスタンス（GCプレッシャー軽減）
+        private static readonly MouseHookEventArgs _mouseMoveArgs = new MouseHookEventArgs(new MousePoint(0, 0), 0);
 
         public MouseHook()
         {
@@ -177,34 +180,54 @@ namespace WindowsFormsApp1
                     return CallNextHookEx(_hookID, nCode, wParam, lParam);
 
                 var p = new MousePoint(hookStruct.pt.x, hookStruct.pt.y);
-                var e = new MouseHookEventArgs(p, (int)hookStruct.mouseData);
-
                 var msg = (MouseMessages)wParam;
 
-                // 例外が漏れると入力系が不安定になるのでガード
-                try
+                // マウス移動は超高頻度なため、専用インスタンスを再利用してGCプレッシャーをゼロにする
+                if (msg == MouseMessages.WM_MOUSEMOVE)
                 {
-                    switch (msg)
+                    try
                     {
-                        case MouseMessages.WM_LBUTTONDOWN: LeftButtonDown?.Invoke(this, e); break;
-                        case MouseMessages.WM_LBUTTONUP: LeftButtonUp?.Invoke(this, e); break;
-                        case MouseMessages.WM_RBUTTONDOWN: RightButtonDown?.Invoke(this, e); break;
-                        case MouseMessages.WM_RBUTTONUP: RightButtonUp?.Invoke(this, e); break;
-                        case MouseMessages.WM_MBUTTONDOWN: MiddleButtonDown?.Invoke(this, e); break;
-                        case MouseMessages.WM_MBUTTONUP: MiddleButtonUp?.Invoke(this, e); break;
-                        case MouseMessages.WM_XBUTTONDOWN: XButtonDown?.Invoke(this, e); break;
-                        case MouseMessages.WM_XBUTTONUP: XButtonUp?.Invoke(this, e); break;
-                        case MouseMessages.WM_MOUSEMOVE: MouseMove?.Invoke(this, e); break;
-                        case MouseMessages.WM_MOUSEWHEEL: MouseWheel?.Invoke(this, e); break;
+                        _mouseMoveArgs.Point = p;
+                        _mouseMoveArgs.MouseData = (int)hookStruct.mouseData;
+                        _mouseMoveArgs.Handled = false;
+                        MouseMove?.Invoke(this, _mouseMoveArgs);
                     }
-                }
-                catch
-                {
-                    // フック側では握って次へ
-                }
+                    catch
+                    {
+                        // フック側では握って次へ
+                    }
 
-                if (e.Handled)
-                    return (IntPtr)1;
+                    if (_mouseMoveArgs.Handled)
+                        return (IntPtr)1;
+                }
+                else
+                {
+                    var e = new MouseHookEventArgs(p, (int)hookStruct.mouseData);
+
+                    // 例外が漏れると入力系が不安定になるのでガード
+                    try
+                    {
+                        switch (msg)
+                        {
+                            case MouseMessages.WM_LBUTTONDOWN: LeftButtonDown?.Invoke(this, e); break;
+                            case MouseMessages.WM_LBUTTONUP: LeftButtonUp?.Invoke(this, e); break;
+                            case MouseMessages.WM_RBUTTONDOWN: RightButtonDown?.Invoke(this, e); break;
+                            case MouseMessages.WM_RBUTTONUP: RightButtonUp?.Invoke(this, e); break;
+                            case MouseMessages.WM_MBUTTONDOWN: MiddleButtonDown?.Invoke(this, e); break;
+                            case MouseMessages.WM_MBUTTONUP: MiddleButtonUp?.Invoke(this, e); break;
+                            case MouseMessages.WM_XBUTTONDOWN: XButtonDown?.Invoke(this, e); break;
+                            case MouseMessages.WM_XBUTTONUP: XButtonUp?.Invoke(this, e); break;
+                            case MouseMessages.WM_MOUSEWHEEL: MouseWheel?.Invoke(this, e); break;
+                        }
+                    }
+                    catch
+                    {
+                        // フック側では握って次へ
+                    }
+
+                    if (e.Handled)
+                        return (IntPtr)1;
+                }
             }
             catch
             {

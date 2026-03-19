@@ -202,12 +202,11 @@ namespace WindowsFormsApp1
                 }
             }
             
-            string currentGesture = string.Join("", _gestureDirections);
-            
             int now = Environment.TickCount;
             if (unchecked(now - _lastFeedbackUpdateTick) >= FEEDBACK_UPDATE_INTERVAL_MS)
             {
                 _lastFeedbackUpdateTick = now;
+                string currentGesture = string.Join("", _gestureDirections);
                 OnUpdateFeedback?.Invoke(currentGesture, new Point(e.Point.X, e.Point.Y));
             }
         }
