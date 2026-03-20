@@ -71,7 +71,6 @@ namespace WindowsFormsApp1
         private System.Threading.RegisteredWaitHandle _registeredWaitHandle;
 
         private bool _isAutoStart;
-        private bool _firstShow = true;
 
         public Form1(string[] args = null)
         {
@@ -85,14 +84,10 @@ namespace WindowsFormsApp1
 
         protected override void SetVisibleCore(bool value)
         {
-            if (_firstShow)
+            if (_isAutoStart)
             {
-                _firstShow = false;
-
-                if (_isAutoStart)
-                {
-                    value = false;
-                }
+                value = false;
+                if (!this.IsHandleCreated) CreateHandle();
             }
 
             base.SetVisibleCore(value);
@@ -100,6 +95,7 @@ namespace WindowsFormsApp1
 
         private void RestoreFromTray()
         {
+            _isAutoStart = false;
             this.Show();
             this.WindowState = FormWindowState.Normal;
             this.Activate();
