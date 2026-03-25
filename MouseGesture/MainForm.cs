@@ -74,11 +74,46 @@ namespace WindowsFormsApp1
 
         public Form1(string[] args = null)
         {
-            InitializeComponent();
-
             if (args != null)
             {
-                _isAutoStart = args.Contains("--autostart");
+                _isAutoStart = args.Any(a => string.Equals(a, "--autostart", StringComparison.OrdinalIgnoreCase))
+                    || Environment.GetEnvironmentVariable("APP_AUTOSTART") == "1";
+            }
+
+            InitializeComponent();
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                if (_isAutoStart)
+                {
+                    cp.ExStyle |= 0x08000000; // WS_EX_NOACTIVATE
+                }
+                return cp;
+            }
+        }
+
+        private bool _isInitialized = false;
+
+        protected override void OnLoad(EventArgs e)
+        {
+            try
+            {
+                if (_isAutoStart)
+                {
+                    this.Visible = false;
+                    this.ShowInTaskbar = false;
+                }
+
+                base.OnLoad(e);
+            }
+            catch (Exception ex)
+            {
+                System.IO.File.WriteAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "load_crash.log"), ex.ToString());
+                throw;
             }
         }
 
@@ -87,7 +122,11 @@ namespace WindowsFormsApp1
             if (_isAutoStart)
             {
                 value = false;
-                if (!this.IsHandleCreated) CreateHandle();
+                if (!this.IsHandleCreated) 
+                {
+                    CreateHandle();
+                    Form1_Load(this, EventArgs.Empty);
+                }
             }
 
             base.SetVisibleCore(value);
@@ -96,7 +135,8 @@ namespace WindowsFormsApp1
         private void RestoreFromTray()
         {
             _isAutoStart = false;
-            this.Show();
+            this.ShowInTaskbar = true;
+            this.Visible = true;
             this.WindowState = FormWindowState.Normal;
             this.Activate();
         }
@@ -140,77 +180,83 @@ namespace WindowsFormsApp1
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            if (IsDesignMode()) return;
+            if (_isInitialized) return;
+            _isInitialized = true;
+            try {
+                if (IsDesignMode()) return;
 
-            // シングルインスタンス用のイベント待機ハンドル
-            _showWindowWaitHandle = new System.Threading.EventWaitHandle(false, System.Threading.EventResetMode.AutoReset, "MouseGestureApp_ShowWindowEvent");
-            _registeredWaitHandle = System.Threading.ThreadPool.RegisterWaitForSingleObject(_showWindowWaitHandle, ShowWindowCallback, null, -1, false);
+                // シングルインスタンス用のイベント待機ハンドル
+                _showWindowWaitHandle = new System.Threading.EventWaitHandle(false, System.Threading.EventResetMode.AutoReset, "MouseGestureApp_ShowWindowEvent");
+                _registeredWaitHandle = System.Threading.ThreadPool.RegisterWaitForSingleObject(_showWindowWaitHandle, ShowWindowCallback, null, -1, false);
 
-            _profileManager = new ProfileManager(SettingsFilePath);
-            _profileManager.LoadGestures();
+                _profileManager = new ProfileManager(SettingsFilePath);
+                _profileManager.LoadGestures();
 
-            _gestureEditController = new GestureEditController(_profileManager, UpdateGestureLabel);
+                _gestureEditController = new GestureEditController(_profileManager, UpdateGestureLabel);
 
-            this.KeyPreview = true;
-            this.KeyDown += Form1_KeyDown;
+                this.KeyPreview = true;
+                this.KeyDown += Form1_KeyDown;
 
-            InitializeCustomUI(); // Create Tabs and move controls
-            InitializeAddButton(); // Add buttons
-            ApplyModernTheme(); // Apply theme to all controls
-            
-            _trayIconManager = new TrayIconManager(this.Icon, "Mouse Gesture", RestoreFromTray, () => this.BeginInvoke(new Action(Application.Exit)));
-            
-            _gestureEngine = new GestureEngine(_profileManager)
-            {
-                OnUpdateFeedback = UpdateRealTimeFeedback,
-                OnHideFeedback = HideRealTimeFeedback,
-                OnHideFeedbackDelayed = (delayMsg) => 
+                InitializeCustomUI(); // Create Tabs and move controls
+                InitializeAddButton(); // Add buttons
+                ApplyModernTheme(); // Apply theme to all controls
+                
+                _trayIconManager = new TrayIconManager(this.Icon, "Mouse Gesture", RestoreFromTray, () => this.BeginInvoke(new Action(Application.Exit)));
+                
+                _gestureEngine = new GestureEngine(_profileManager)
                 {
-                    // Delay logic
-                    var tmr = new Timer { Interval = delayMsg };
-                    tmr.Tick += (s, args) => 
+                    OnUpdateFeedback = UpdateRealTimeFeedback,
+                    OnHideFeedback = HideRealTimeFeedback,
+                    OnHideFeedbackDelayed = (delayMsg) => 
                     {
-                        tmr.Stop();
-                        tmr.Dispose();
-                        HideRealTimeFeedback();
-                    };
-                    tmr.Start();
-                },
-                IsRecordingGesture = () => _gestureEditController.IsRecordingGesture,
-                IsListeningForKey = () => _gestureEditController.IsListeningForKey,
-                OnCancelEditingMode = () => this.Invoke(new Action(_gestureEditController.CancelEditingMode)),
-                OnGestureRecorded = (gesture) => 
+                        // Delay logic
+                        var tmr = new Timer { Interval = delayMsg };
+                        tmr.Tick += (s, args) => 
+                        {
+                            tmr.Stop();
+                            tmr.Dispose();
+                            HideRealTimeFeedback();
+                        };
+                        tmr.Start();
+                    },
+                    IsRecordingGesture = () => _gestureEditController.IsRecordingGesture,
+                    IsListeningForKey = () => _gestureEditController.IsListeningForKey,
+                    OnCancelEditingMode = () => this.Invoke(new Action(_gestureEditController.CancelEditingMode)),
+                    OnGestureRecorded = (gesture) => 
+                    {
+                        this.Invoke(new Action(() => _gestureEditController.OnGestureRecorded(gesture)));
+                    }
+                };
+                _gestureEngine.Start();
+
+                // Initialize Feedback Overlay
+                _feedbackOverlay = new UI.FeedbackOverlay();
+
+                // Setup Global Grid
+                SetupGridProperties(dgvGestures);
+                dgvGestures.DataSource = _profileManager.GlobalGestureMaps;
+                
+                // Setup App Grid
+                SetupGridProperties(_dgvAppGestures);
+                _dgvAppGestures.DataSource = _profileManager.CurrentAppGestureMaps;
+
+                // Setup Group Grid
+                if (_dgvGroupGestures != null)
                 {
-                    this.Invoke(new Action(() => _gestureEditController.OnGestureRecorded(gesture)));
+                    SetupGridProperties(_dgvGroupGestures);
+                    _dgvGroupGestures.DataSource = _profileManager.CurrentGroupGestureMaps;
                 }
-            };
-            _gestureEngine.Start();
 
-            // Initialize Feedback Overlay
-            _feedbackOverlay = new UI.FeedbackOverlay();
-
-            // Setup Global Grid
-            SetupGridProperties(dgvGestures);
-            dgvGestures.DataSource = _profileManager.GlobalGestureMaps;
-            
-            // Setup App Grid
-            SetupGridProperties(_dgvAppGestures);
-            _dgvAppGestures.DataSource = _profileManager.CurrentAppGestureMaps;
-
-            // Setup Group Grid
-            if (_dgvGroupGestures != null)
-            {
-                SetupGridProperties(_dgvGroupGestures);
-                _dgvGroupGestures.DataSource = _profileManager.CurrentGroupGestureMaps;
+                // Handle clicks outside grid to commit edit
+                this.MouseDown += _gestureEditController.HandleMouseDownOnOtherControls;
+                lblGesture.MouseDown += _gestureEditController.HandleMouseDownOnOtherControls;
+                
+                // Select first app if available
+                if (_cmbApps.Items.Count > 0)
+                    _cmbApps.SelectedIndex = 0;
+            } catch (Exception) {
+                // Ignore errors during disposal
             }
-
-            // Handle clicks outside grid to commit edit
-            this.MouseDown += _gestureEditController.HandleMouseDownOnOtherControls;
-            lblGesture.MouseDown += _gestureEditController.HandleMouseDownOnOtherControls;
-            
-             // Select first app if available
-            if (_cmbApps.Items.Count > 0)
-                _cmbApps.SelectedIndex = 0;
         }
 
 
