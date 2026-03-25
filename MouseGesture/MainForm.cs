@@ -201,7 +201,7 @@ namespace WindowsFormsApp1
                 InitializeAddButton(); // Add buttons
                 ApplyModernTheme(); // Apply theme to all controls
                 
-                _trayIconManager = new TrayIconManager(this.Icon, "Mouse Gesture", RestoreFromTray, () => this.BeginInvoke(new Action(Application.Exit)));
+                _trayIconManager = new TrayIconManager(this.Icon, "Mouse Gesture", RestoreFromTray, () => this.BeginInvoke(new Action(this.Close)));
                 
                 _gestureEngine = new GestureEngine(_profileManager)
                 {
