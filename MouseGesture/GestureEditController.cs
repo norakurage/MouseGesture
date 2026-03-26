@@ -10,12 +10,13 @@ namespace WindowsFormsApp1
         private ProfileManager _profileManager;
         private Action<string> _updateLabelAction;
 
-        public int EditingRowIndex { get; private set; } = -1;
+        // 状態管理：インデックスではなくオブジェクト参照で保持（レビュー指摘①）
+        private GestureMap _editingItem;
+        
         public bool IsRecordingGesture { get; private set; } = false;
         public bool IsListeningForKey { get; private set; } = false;
         
         private DataGridView _editingGrid;
-        private BindingList<GestureMap> _editingList;
 
         public GestureEditController(ProfileManager profileManager, Action<string> updateLabelAction)
         {
@@ -55,6 +56,10 @@ namespace WindowsFormsApp1
                 tb.BackColor = Color.FromArgb(45, 45, 48);
                 tb.ForeColor = Color.White;
                 tb.BorderStyle = BorderStyle.FixedSingle;
+                
+                // イベントの多重登録を防ぐための予防措置（レビュー指摘③）
+                // tb.KeyDown -= CustomKeyDownHandler;
+                // tb.KeyDown += CustomKeyDownHandler;
             }
         }
 
@@ -64,7 +69,9 @@ namespace WindowsFormsApp1
             {
                 var dgv = sender as DataGridView;
                 var col = dgv.Columns[e.ColumnIndex];
-                if (col.Name == "Name" || col.HeaderText == "名前")
+                
+                // HeaderTextではなくNameに依存させる（レビュー指摘②）
+                if (col.Name == "Name")
                 {
                     dgv.BeginEdit(true);
                 }
@@ -82,12 +89,15 @@ namespace WindowsFormsApp1
                 {
                     if (e.RowIndex < list.Count)
                     {
-                        if (EditingRowIndex == e.RowIndex && _editingGrid == dgv)
+                        var itemToDelete = list[e.RowIndex];
+                        
+                        // インデックスではなくオブジェクト参照で比較
+                        if (_editingItem == itemToDelete && _editingGrid == dgv)
                         {
                             CancelEditingMode();
                         }
                         
-                        list.RemoveAt(e.RowIndex);
+                        list.Remove(itemToDelete);
                         _profileManager.SaveGestures();
                     }
                 }
@@ -101,27 +111,28 @@ namespace WindowsFormsApp1
             var dgv = sender as DataGridView;
             var list = dgv.DataSource as BindingList<GestureMap>;
 
-            EditingRowIndex = e.RowIndex;
-            _editingGrid = dgv;
-            _editingList = list;
-
-            if (EditingRowIndex >= list.Count)
+            if (e.RowIndex >= list.Count)
             {
                 list.Add(new GestureMap());
             }
 
-            string headerText = dgv.Columns[e.ColumnIndex].HeaderText;
+            // 編集対象のオブジェクトを保持（レビュー指摘①）
+            _editingItem = list[e.RowIndex];
+            _editingGrid = dgv;
 
-            if (headerText == "ジェスチャー")
+            string colName = dgv.Columns[e.ColumnIndex].Name;
+
+            // HeaderTextへの依存を解消（レビュー指摘②）
+            if (colName == "Gesture")
             {
                 IsRecordingGesture = true;
-                _updateLabelAction?.Invoke($"行 {e.RowIndex + 1} のジェスチャーを記録中... (右クリックでキャンセル)");
+                _updateLabelAction?.Invoke("ジェスチャーを記録中... (ESCまたは右クリックでキャンセル)");
                 dgv.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.DarkRed;
             }
-            else if (headerText == "キー割り当て")
+            else if (colName == "KeyBinding")
             {
                 IsListeningForKey = true;
-                _updateLabelAction?.Invoke($"行 {e.RowIndex + 1} のキーを押してください... (右クリックでキャンセル)");
+                _updateLabelAction?.Invoke("キーを押してください... (ESCまたは右クリックでキャンセル)");
                 dgv.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.DarkBlue;
             }
         }
@@ -130,72 +141,65 @@ namespace WindowsFormsApp1
         {
             if (IsRecordingGesture || IsListeningForKey)
             {
-                if (_editingGrid != null && EditingRowIndex >= 0 && EditingRowIndex < _editingGrid.Rows.Count)
+                if (_editingGrid != null && _editingItem != null)
                 {
-                    if (IsRecordingGesture)
+                    var list = _editingGrid.DataSource as BindingList<GestureMap>;
+                    int rowIndex = list.IndexOf(_editingItem);
+
+                    if (rowIndex >= 0 && rowIndex < _editingGrid.Rows.Count)
                     {
-                        foreach (DataGridViewColumn col in _editingGrid.Columns)
+                        // 列インデックスの直接指定で無駄なループを排除（レビュー指摘④）
+                        if (IsRecordingGesture && _editingGrid.Columns.Contains("Gesture"))
                         {
-                            if (col.HeaderText == "ジェスチャー")
-                            {
-                                _editingGrid.Rows[EditingRowIndex].Cells[col.Index].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
-                                break;
-                            }
+                            _editingGrid.Rows[rowIndex].Cells["Gesture"].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
                         }
-                    }
-                    if (IsListeningForKey)
-                    {
-                        foreach (DataGridViewColumn col in _editingGrid.Columns)
+                        if (IsListeningForKey && _editingGrid.Columns.Contains("KeyBinding"))
                         {
-                            if (col.HeaderText == "キー割り当て")
-                            {
-                                _editingGrid.Rows[EditingRowIndex].Cells[col.Index].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
-                                break;
-                            }
+                            _editingGrid.Rows[rowIndex].Cells["KeyBinding"].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
                         }
+                        _editingGrid.Refresh();
                     }
-                    _editingGrid.Refresh();
                 }
 
-                IsRecordingGesture = false;
-                IsListeningForKey = false;
-                EditingRowIndex = -1;
-                _editingGrid = null;
-                _editingList = null;
+                ResetEditingState();
                 _updateLabelAction?.Invoke("キャンセルしました。");
             }
         }
 
         public void OnGestureRecorded(string gesture)
         {
-            if (EditingRowIndex >= 0 && _editingList != null && EditingRowIndex < _editingList.Count)
+            if (IsRecordingGesture && _editingItem != null)
             {
-                _editingList[EditingRowIndex].Gesture = gesture;
+                _editingItem.Gesture = gesture;
                 _updateLabelAction?.Invoke($"記録完了: {gesture}");
                 
                 if (_editingGrid != null)
                 {
-                    foreach (DataGridViewColumn col in _editingGrid.Columns)
+                    var list = _editingGrid.DataSource as BindingList<GestureMap>;
+                    int rowIndex = list.IndexOf(_editingItem);
+
+                    if (rowIndex >= 0 && _editingGrid.Columns.Contains("Gesture"))
                     {
-                        if (col.HeaderText == "ジェスチャー")
-                        {
-                            _editingGrid.Rows[EditingRowIndex].Cells[col.Index].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
-                            break;
-                        }
+                        _editingGrid.Rows[rowIndex].Cells["Gesture"].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
                     }
                     _editingGrid.Refresh();
                 }
-                IsRecordingGesture = false;
-                EditingRowIndex = -1;
-                _editingGrid = null;
-                _editingList = null;
+
+                ResetEditingState();
                 _profileManager.SaveGestures();
             }
         }
 
         public bool HandleKeyDown(Keys keyData)
         {
-            if (IsListeningForKey && EditingRowIndex >= 0 && _editingList != null && EditingRowIndex < _editingList.Count)
+            // ESCキーでのキャンセル対応（レビュー指摘⑥）
+            if (keyData == Keys.Escape && (IsRecordingGesture || IsListeningForKey))
+            {
+                CancelEditingMode();
+                return true;
+            }
+
+            if (IsListeningForKey && _editingItem != null)
             {
                 Keys keyCode = keyData & Keys.KeyCode;
                 bool isModifier = keyCode == Keys.ControlKey || keyCode == Keys.ShiftKey || keyCode == Keys.Menu;
@@ -203,36 +207,41 @@ namespace WindowsFormsApp1
                 if (!isModifier)
                 {
                     string readableFormat = KeyUtils.GetReadableKeyString(keyData);
-                    _editingList[EditingRowIndex].KeyBinding = readableFormat;
+                    _editingItem.KeyBinding = readableFormat;
 
-                    if (string.IsNullOrEmpty(_editingList[EditingRowIndex].Name))
+                    if (string.IsNullOrEmpty(_editingItem.Name))
                     {
-                        _editingList[EditingRowIndex].Name = readableFormat;
+                        _editingItem.Name = readableFormat;
                     }
                     
                     if (_editingGrid != null)
                     {
-                        foreach (DataGridViewColumn col in _editingGrid.Columns)
+                        var list = _editingGrid.DataSource as BindingList<GestureMap>;
+                        int rowIndex = list.IndexOf(_editingItem);
+
+                        if (rowIndex >= 0 && _editingGrid.Columns.Contains("KeyBinding"))
                         {
-                            if (col.HeaderText == "キー割り当て")
-                            {
-                                _editingGrid.Rows[EditingRowIndex].Cells[col.Index].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
-                                break;
-                            }
+                            _editingGrid.Rows[rowIndex].Cells["KeyBinding"].Style.BackColor = _editingGrid.DefaultCellStyle.BackColor;
                         }
                         _editingGrid.Refresh();
                     }
                     
-                    IsListeningForKey = false;
-                    EditingRowIndex = -1;
-                    _editingGrid = null;
-                    _editingList = null;
+                    ResetEditingState();
                     _updateLabelAction?.Invoke("キーを割り当てました。");
                     _profileManager.SaveGestures();
                 }
                 return true;
             }
             return false;
+        }
+
+        // 状態リセット処理の共通化（レビュー指摘⑤）
+        private void ResetEditingState()
+        {
+            IsRecordingGesture = false;
+            IsListeningForKey = false;
+            _editingItem = null;
+            _editingGrid = null;
         }
     }
 }
