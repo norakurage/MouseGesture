@@ -20,7 +20,6 @@ namespace WindowsFormsApp1
 
         // 新しいコンポーネント
         private ProfileManager _profileManager;
-        private GestureEngine _gestureEngine;
         private TrayIconManager _trayIconManager;
 
         // UI Controls
@@ -164,14 +163,14 @@ namespace WindowsFormsApp1
             {
                 // 本当に終了する
                 _isClosing = true;
-                _gestureEngine?.Stop();
+                _gestureEditController?.StopEngine();
                 
                 _registeredWaitHandle?.Unregister(null);
                 _showWindowWaitHandle?.Dispose();
 
                 _profileManager?.SaveGestures();
                 _trayIconManager?.Dispose();
-                _gestureEngine?.Dispose();
+                _gestureEditController?.Dispose();
                 _feedbackOverlay?.Dispose();
 
                 base.OnFormClosing(e);
@@ -203,11 +202,10 @@ namespace WindowsFormsApp1
                 
                 _trayIconManager = new TrayIconManager(this.Icon, "Mouse Gesture", RestoreFromTray, () => this.BeginInvoke(new Action(this.Close)));
                 
-                _gestureEngine = new GestureEngine(_profileManager)
-                {
-                    OnUpdateFeedback = UpdateRealTimeFeedback,
-                    OnHideFeedback = HideRealTimeFeedback,
-                    OnHideFeedbackDelayed = (delayMsg) => 
+                _gestureEditController.InitializeEngine(
+                    UpdateRealTimeFeedback,
+                    HideRealTimeFeedback,
+                    (delayMsg) => 
                     {
                         // Delay logic
                         var tmr = new Timer { Interval = delayMsg };
@@ -219,15 +217,9 @@ namespace WindowsFormsApp1
                         };
                         tmr.Start();
                     },
-                    IsRecordingGesture = () => _gestureEditController.IsRecordingGesture,
-                    IsListeningForKey = () => _gestureEditController.IsListeningForKey,
-                    OnCancelEditingMode = () => this.Invoke(new Action(_gestureEditController.CancelEditingMode)),
-                    OnGestureRecorded = (gesture) => 
-                    {
-                        this.Invoke(new Action(() => _gestureEditController.OnGestureRecorded(gesture)));
-                    }
-                };
-                _gestureEngine.Start();
+                    (action) => this.Invoke(action)
+                );
+                _gestureEditController.StartEngine();
 
                 // Initialize Feedback Overlay
                 _feedbackOverlay = new UI.FeedbackOverlay();

@@ -52,7 +52,7 @@
     <ManifestCertificateThumbprint>AD7309405747C3441B58399C5D9384621858510E</ManifestCertificateThumbprint>
   </PropertyGroup>
   <PropertyGroup>
-    <ManifestKeyFile>MouseGesture_TemporaryKey.pfx</ManifestKeyFile>
+    <ManifestKeyFile>Certificates\MouseGesture_TemporaryKey.pfx</ManifestKeyFile>
   </PropertyGroup>
   <PropertyGroup>
     <GenerateManifests>true</GenerateManifests>
@@ -74,31 +74,31 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="MainForm.cs">
+    <Compile Include="UI\Main\MainForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="MainForm.Designer.cs">
+    <Compile Include="UI\Main\MainForm.Designer.cs">
       <DependentUpon>MainForm.cs</DependentUpon>
     </Compile>
-    <Compile Include="TrayIconManager.cs" />
-    <Compile Include="ProfileManager.cs" />
-    <Compile Include="GestureEngine.cs" />
-    <Compile Include="MouseHook.cs" />
-    <Compile Include="Models.cs" />
-    <Compile Include="NativeMethods.cs" />
-    <Compile Include="KeyUtils.cs" />
-    <Compile Include="ProcessUtils.cs" />
-    <Compile Include="FeedbackForm.cs" />
-    <Compile Include="UI\FeedbackOverlay.cs" />
-    <Compile Include="UI\OpenAppSelectorDialog.cs">
+    <Compile Include="UI\Tray\TrayIconManager.cs" />
+    <Compile Include="Application\Services\ProfileManager.cs" />
+    <Compile Include="Application\Services\GestureEngine.cs" />
+    <Compile Include="Infrastructure\Hooks\MouseHook.cs" />
+    <Compile Include="Domain\Models\Models.cs" />
+    <Compile Include="Infrastructure\Native\NativeMethods.cs" />
+    <Compile Include="Infrastructure\Utils\KeyUtils.cs" />
+    <Compile Include="Infrastructure\Utils\ProcessUtils.cs" />
+    <Compile Include="UI\Overlay\FeedbackForm.cs" />
+    <Compile Include="UI\Overlay\FeedbackOverlay.cs" />
+    <Compile Include="UI\Dialogs\OpenAppSelectorDialog.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Include="UI\GroupEditorDialogs.cs" />
-    <Compile Include="GestureEditController.cs" />
-    <Compile Include="UIInitializer.cs" />
-    <Compile Include="Program.cs" />
+    <Compile Include="UI\Dialogs\GroupEditorDialogs.cs" />
+    <Compile Include="Application\Controllers\GestureEditController.cs" />
+    <Compile Include="App\UIInitializer.cs" />
+    <Compile Include="App\Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <EmbeddedResource Include="MainForm.resx">
+    <EmbeddedResource Include="UI\Main\MainForm.resx">
       <DependentUpon>MainForm.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Properties\Resources.resx">
@@ -113,16 +113,16 @@
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
-      </None>
+    </None>
     <Compile Include="Properties\Settings.Designer.cs">
       <AutoGen>True</AutoGen>
       <DependentUpon>Settings.settings</DependentUpon>
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
-    <None Include="MouseGesture_TemporaryKey.pfx" />
+    <None Include="Certificates\MouseGesture_TemporaryKey.pfx" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="App.config" />
+    <None Include="App\App.config" />
   </ItemGroup>
   <ItemGroup>
     <BootstrapperPackage Include=".NETFramework,Version=v4.7.2">

@@ -9,10 +9,14 @@ namespace WindowsFormsApp1
         private static readonly Dictionary<uint, (string Path, DateTime ExpireTime)> _processCache = new Dictionary<uint, (string, DateTime)>();
         private static readonly object _cacheLock = new object();
 
+        public static IntPtr GetForegroundWindowHandle()
+        {
+            return NativeMethods.GetForegroundWindow();
+        }
+
         public static string GetActiveProcessPath()
         {
-            IntPtr hWnd = NativeMethods.GetForegroundWindow();
-            return GetProcessPathFromWindowHandle(hWnd);
+            return GetProcessPathFromWindowHandle(GetForegroundWindowHandle());
         }
 
         public static string GetProcessPathFromWindowHandle(IntPtr hWnd)
