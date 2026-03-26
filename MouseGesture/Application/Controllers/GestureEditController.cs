@@ -5,10 +5,11 @@ using System.Windows.Forms;
 
 namespace WindowsFormsApp1
 {
-    public class GestureEditController
+    public class GestureEditController : IDisposable
     {
         private ProfileManager _profileManager;
         private Action<string> _updateLabelAction;
+        private GestureEngine _gestureEngine;
 
         // 状態管理：インデックスではなくオブジェクト参照で保持（レビュー指摘①）
         private GestureMap _editingItem;
@@ -23,6 +24,28 @@ namespace WindowsFormsApp1
             _profileManager = profileManager;
             _updateLabelAction = updateLabelAction;
         }
+
+        public void InitializeEngine(
+            Action<string, Point> onUpdateFeedback,
+            Action onHideFeedback,
+            Action<int> onHideFeedbackDelayed,
+            Action<Action> invokeAction)
+        {
+            _gestureEngine = new GestureEngine(_profileManager)
+            {
+                OnUpdateFeedback = onUpdateFeedback,
+                OnHideFeedback = onHideFeedback,
+                OnHideFeedbackDelayed = onHideFeedbackDelayed,
+                IsRecordingGesture = () => this.IsRecordingGesture,
+                IsListeningForKey = () => this.IsListeningForKey,
+                OnCancelEditingMode = () => invokeAction(this.CancelEditingMode),
+                OnGestureRecorded = (gesture) => invokeAction(() => this.OnGestureRecorded(gesture))
+            };
+        }
+
+        public void StartEngine() => _gestureEngine?.Start();
+        public void StopEngine() => _gestureEngine?.Stop();
+        public void Dispose() => _gestureEngine?.Dispose();
 
         public void Attach(DataGridView dgv)
         {

@@ -65,7 +65,7 @@ namespace WindowsFormsApp1
                 return;
             }
 
-            _targetWindowHandle = NativeMethods.GetForegroundWindow();
+            _targetWindowHandle = ProcessUtils.GetForegroundWindowHandle();
 
             _isRightButtonDown = true;
             _gestureExecuted = false;
