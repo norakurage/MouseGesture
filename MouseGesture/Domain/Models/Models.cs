@@ -23,6 +23,7 @@ namespace WindowsFormsApp1
         public List<GestureMap> Gestures { get; set; } = new List<GestureMap>();
 
         [System.Xml.Serialization.XmlIgnore]
+        [System.Text.Json.Serialization.JsonIgnore]
         public Dictionary<string, GestureMap> GestureDict { get; set; } = new Dictionary<string, GestureMap>();
 
         public void RebuildDictionary()
@@ -48,6 +49,7 @@ namespace WindowsFormsApp1
         public List<GestureMap> Gestures { get; set; } = new List<GestureMap>();
 
         [System.Xml.Serialization.XmlIgnore]
+        [System.Text.Json.Serialization.JsonIgnore]
         public Dictionary<string, GestureMap> GestureDict { get; set; } = new Dictionary<string, GestureMap>();
 
         public void RebuildDictionary()

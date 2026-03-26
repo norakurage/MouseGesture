@@ -16,7 +16,7 @@ namespace WindowsFormsApp1
 {
     public partial class Form1 : Form
     {
-        private string SettingsFilePath => Path.Combine(AppContext.BaseDirectory, "gestures.xml");
+        private string SettingsFilePath => Path.Combine(AppContext.BaseDirectory, "gestures.json");
 
         // 新しいコンポーネント
         private ProfileManager _profileManager;

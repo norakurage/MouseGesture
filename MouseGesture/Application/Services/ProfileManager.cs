@@ -64,47 +64,71 @@ namespace WindowsFormsApp1
         {
             try
             {
-                if (File.Exists(_settingsFilePath))
-                {
-                    string rootName = "";
-                    using (System.Xml.XmlReader reader = System.Xml.XmlReader.Create(_settingsFilePath))
-                    {
-                        if (reader.MoveToContent() == System.Xml.XmlNodeType.Element)
-                        {
-                            rootName = reader.Name;
-                        }
-                    }
+                string xmlFilePath = Path.ChangeExtension(_settingsFilePath, ".xml");
+                string fileToLoad = _settingsFilePath;
+                bool loadedFromXml = false;
 
-                    if (rootName == "GestureConfig")
+                if (!File.Exists(_settingsFilePath) && File.Exists(xmlFilePath))
+                {
+                    fileToLoad = xmlFilePath;
+                    loadedFromXml = true;
+                }
+
+                if (File.Exists(fileToLoad))
+                {
+                    if (loadedFromXml || fileToLoad.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
                     {
-                        XmlSerializer serializer = new XmlSerializer(typeof(GestureConfig));
-                        using (FileStream fs = new FileStream(_settingsFilePath, FileMode.Open))
+                        string rootName = "";
+                        using (System.Xml.XmlReader reader = System.Xml.XmlReader.Create(fileToLoad))
                         {
-                            var config = (GestureConfig)serializer.Deserialize(fs);
-                            AppProfiles = config.AppProfiles ?? new List<AppProfile>();
-                            GroupProfiles = config.GroupProfiles ?? new List<GroupProfile>();
+                            if (reader.MoveToContent() == System.Xml.XmlNodeType.Element)
+                            {
+                                rootName = reader.Name;
+                            }
                         }
-                    }
-                    else if (rootName == "ArrayOfAppProfile")
-                    {
-                        XmlSerializer serializer = new XmlSerializer(typeof(List<AppProfile>));
-                        using (FileStream fs = new FileStream(_settingsFilePath, FileMode.Open))
+
+                        if (rootName == "GestureConfig")
                         {
-                            AppProfiles = (List<AppProfile>)serializer.Deserialize(fs);
+                            XmlSerializer serializer = new XmlSerializer(typeof(GestureConfig));
+                            using (FileStream fs = new FileStream(fileToLoad, FileMode.Open))
+                            {
+                                var config = (GestureConfig)serializer.Deserialize(fs);
+                                AppProfiles = config.AppProfiles ?? new List<AppProfile>();
+                                GroupProfiles = config.GroupProfiles ?? new List<GroupProfile>();
+                            }
                         }
-                        GroupProfiles = new List<GroupProfile>();
+                        else if (rootName == "ArrayOfAppProfile")
+                        {
+                            XmlSerializer serializer = new XmlSerializer(typeof(List<AppProfile>));
+                            using (FileStream fs = new FileStream(fileToLoad, FileMode.Open))
+                            {
+                                AppProfiles = (List<AppProfile>)serializer.Deserialize(fs);
+                            }
+                            GroupProfiles = new List<GroupProfile>();
+                        }
+                        else
+                        {
+                            // Fallback (old format)
+                            XmlSerializer serializer = new XmlSerializer(typeof(List<GestureMap>));
+                            using (FileStream fs = new FileStream(fileToLoad, FileMode.Open))
+                            {
+                                var loadedGestures = (List<GestureMap>)serializer.Deserialize(fs);
+                                AppProfiles.Clear();
+                                AppProfiles.Add(new AppProfile { AppName = "Global", Gestures = loadedGestures });
+                            }
+                            GroupProfiles = new List<GroupProfile>();
+                        }
                     }
                     else
                     {
-                        // Fallback (old format)
-                        XmlSerializer serializer = new XmlSerializer(typeof(List<GestureMap>));
-                        using (FileStream fs = new FileStream(_settingsFilePath, FileMode.Open))
+                        string json = File.ReadAllText(fileToLoad);
+                        var options = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                        var config = System.Text.Json.JsonSerializer.Deserialize<GestureConfig>(json, options);
+                        if (config != null)
                         {
-                            var loadedGestures = (List<GestureMap>)serializer.Deserialize(fs);
-                            AppProfiles.Clear();
-                            AppProfiles.Add(new AppProfile { AppName = "Global", Gestures = loadedGestures });
+                            AppProfiles = config.AppProfiles ?? new List<AppProfile>();
+                            GroupProfiles = config.GroupProfiles ?? new List<GroupProfile>();
                         }
-                        GroupProfiles = new List<GroupProfile>();
                     }
                 }
             }
@@ -160,11 +184,9 @@ namespace WindowsFormsApp1
                     GroupProfiles = GroupProfiles
                 };
 
-                XmlSerializer serializer = new XmlSerializer(typeof(GestureConfig));
-                using (FileStream fs = new FileStream(_settingsFilePath, FileMode.Create))
-                {
-                    serializer.Serialize(fs, config);
-                }
+                var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+                string json = System.Text.Json.JsonSerializer.Serialize(config, options);
+                File.WriteAllText(_settingsFilePath, json);
             }
             catch (Exception ex)
             {
