@@ -1,7 +1,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
-
+using Timer = System.Windows.Forms.Timer;
 namespace WindowsFormsApp1.UI
 {
     public class FeedbackOverlay : IDisposable

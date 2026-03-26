@@ -11,7 +11,7 @@ using System.Windows.Forms;
 using System.IO;
 using System.Xml.Serialization;
 using System.Runtime.InteropServices;
-
+using Timer = System.Windows.Forms.Timer;
 namespace WindowsFormsApp1
 {
     public partial class Form1 : Form
