@@ -70,6 +70,8 @@ namespace WindowsFormsApp1
 
     public class GestureConfig
     {
+        public bool AutoStart { get; set; } = false;
+        public List<GestureMap> GlobalGestures { get; set; } = new List<GestureMap>();
         public List<AppProfile> AppProfiles { get; set; } = new List<AppProfile>();
         public List<GroupProfile> GroupProfiles { get; set; } = new List<GroupProfile>();
     }

@@ -9,11 +9,13 @@ namespace WindowsFormsApp1
 {
     public class ProfileManager
     {
-        public List<AppProfile> AppProfiles { get; private set; } = new List<AppProfile>();
-        public List<GroupProfile> GroupProfiles { get; private set; } = new List<GroupProfile>();
+        public bool AutoStart { get; set; } = false;
+        public List<AppProfile> AppProfiles { get; set; } = new List<AppProfile>();
+        public List<GroupProfile> GroupProfiles { get; set; } = new List<GroupProfile>();
 
         // 共通（Global）ジェスチャー用のLiveリスト（UIバインド用）
         public BindingList<GestureMap> GlobalGestureMaps { get; private set; } = new BindingList<GestureMap>();
+        public Dictionary<string, GestureMap> GlobalGestureDict { get; private set; } = new Dictionary<string, GestureMap>();
 
         public AppProfile CurrentAppProfile { get; private set; }
         public BindingList<GestureMap> CurrentAppGestureMaps { get; private set; } = new BindingList<GestureMap>();
@@ -126,8 +128,15 @@ namespace WindowsFormsApp1
                         var config = System.Text.Json.JsonSerializer.Deserialize<GestureConfig>(json, options);
                         if (config != null)
                         {
+                            AutoStart = config.AutoStart;
                             AppProfiles = config.AppProfiles ?? new List<AppProfile>();
                             GroupProfiles = config.GroupProfiles ?? new List<GroupProfile>();
+                            
+                            GlobalGestureMaps.Clear();
+                            if (config.GlobalGestures != null)
+                            {
+                                foreach (var g in config.GlobalGestures) GlobalGestureMaps.Add(g);
+                            }
                         }
                     }
                 }
@@ -137,21 +146,20 @@ namespace WindowsFormsApp1
                 throw new ApplicationException($"設定の読み込みに失敗しました: {ex.Message}", ex);
             }
 
-            // Ensure Global profile exists
-            if (AppProfiles.Count == 0 || !AppProfiles.Any(p => string.IsNullOrEmpty(p.AppPath)))
+            // Migrate old "Global" AppProfile if it exists
+            var oldGlobal = AppProfiles.FirstOrDefault(p => string.IsNullOrEmpty(p.AppPath));
+            if (oldGlobal != null)
             {
-                var global = AppProfiles.FirstOrDefault(p => string.IsNullOrEmpty(p.AppPath));
-                if (global == null)
+                // Move gestures to global if any
+                foreach (var g in oldGlobal.Gestures)
                 {
-                    global = new AppProfile { AppName = "Global", AppPath = "" };
-                    AppProfiles.Insert(0, global);
+                    if (!GlobalGestureMaps.Any(x => x.Gesture == g.Gesture))
+                    {
+                        GlobalGestureMaps.Add(g);
+                    }
                 }
+                AppProfiles.Remove(oldGlobal);
             }
-
-            // Populate Main Global Binding List
-            var globalProfile = AppProfiles.First(p => string.IsNullOrEmpty(p.AppPath));
-            GlobalGestureMaps.Clear();
-            foreach (var g in globalProfile.Gestures) GlobalGestureMaps.Add(g);
 
             RebuildDictionaries();
         }
@@ -160,9 +168,6 @@ namespace WindowsFormsApp1
         {
             try
             {
-                // Sync Global
-                var globalProfile = AppProfiles.First(p => string.IsNullOrEmpty(p.AppPath));
-                globalProfile.Gestures = GlobalGestureMaps.ToList();
 
                 // Sync Current App
                 if (CurrentAppProfile != null)
@@ -180,11 +185,18 @@ namespace WindowsFormsApp1
 
                 GestureConfig config = new GestureConfig
                 {
+                    AutoStart = this.AutoStart,
+                    GlobalGestures = GlobalGestureMaps.ToList(),
                     AppProfiles = AppProfiles,
                     GroupProfiles = GroupProfiles
                 };
 
-                var options = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+                var options = new System.Text.Json.JsonSerializerOptions 
+                { 
+                    WriteIndented = true,
+                    PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+                    Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                };
                 string json = System.Text.Json.JsonSerializer.Serialize(config, options);
                 File.WriteAllText(_settingsFilePath, json);
             }
@@ -196,6 +208,15 @@ namespace WindowsFormsApp1
 
         private void RebuildDictionaries()
         {
+            GlobalGestureDict.Clear();
+            foreach (var g in GlobalGestureMaps)
+            {
+                if (!string.IsNullOrEmpty(g.Gesture))
+                {
+                    GlobalGestureDict[g.Gesture] = g;
+                }
+            }
+
             foreach (var profile in AppProfiles)
             {
                 profile.RebuildDictionary();
@@ -325,17 +346,7 @@ namespace WindowsFormsApp1
             // Priority 3: Global
             if (map == null)
             {
-                AppProfile globalProfile = null;
-                for (int i = 0; i < AppProfiles.Count; i++)
-                {
-                    if (string.IsNullOrEmpty(AppProfiles[i].AppPath))
-                    {
-                        globalProfile = AppProfiles[i];
-                        break;
-                    }
-                }
-
-                if (globalProfile != null && globalProfile.GestureDict.TryGetValue(gesture, out GestureMap gm))
+                if (GlobalGestureDict.TryGetValue(gesture, out GestureMap gm))
                 {
                     map = gm;
                 }

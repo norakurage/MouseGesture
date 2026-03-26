@@ -38,16 +38,20 @@ namespace WindowsFormsApp1
             _chkAutoStart.ForeColor = Color.White;
             _chkAutoStart.Location = new Point(10, 10);
             _chkAutoStart.AutoSize = true;
-            _chkAutoStart.Checked = _trayIconManager != null ? _trayIconManager.GetAutoStartStatus(Application.ExecutablePath) : false;
-            if (_trayIconManager == null) 
-            {
-                // Fallback for before initialization
-                var tempManager = new TrayIconManager(null, "", null, null);
-                _chkAutoStart.Checked = tempManager.GetAutoStartStatus(Application.ExecutablePath);
-                tempManager.Dispose();
-            }
+            _chkAutoStart.Checked = _profileManager.AutoStart;
+
+            // 同期処理: アプリ起動時にJSON設定とレジストリの一致を保証する
+            var tempManager = new TrayIconManager(null, "", null, null);
+            tempManager.RegisterAutoStart(_chkAutoStart.Checked, Application.ExecutablePath);
+            tempManager.Dispose();
+
             _chkAutoStart.CheckedChanged += (s, e) =>
             {
+                if (_profileManager != null)
+                {
+                    _profileManager.AutoStart = _chkAutoStart.Checked;
+                    _profileManager.SaveGestures();
+                }
                 _trayIconManager?.RegisterAutoStart(_chkAutoStart.Checked, Application.ExecutablePath);
             };
             
