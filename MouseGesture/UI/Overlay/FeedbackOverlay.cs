@@ -16,6 +16,37 @@ namespace WindowsFormsApp1.UI
             _feedbackFadeTimer = new Timer();
             _feedbackFadeTimer.Interval = 16; // ~60fps fade
             _feedbackFadeTimer.Tick += OnFadeTick;
+
+            InitializeForm();
+        }
+
+        private void InitializeForm()
+        {
+            if (_feedbackForm == null || _feedbackForm.IsDisposed)
+            {
+                float targetPixelSize = SystemInformation.CursorSize.Height * 0.6f;
+                if (targetPixelSize < 12) targetPixelSize = 12;
+
+                _feedbackForm = new FeedbackForm();
+                _feedbackForm.FormBorderStyle = FormBorderStyle.None;
+                _feedbackForm.ShowInTaskbar = false;
+                _feedbackForm.StartPosition = FormStartPosition.Manual;
+                _feedbackForm.BackColor = Color.FromArgb(30, 30, 30);
+                _feedbackForm.Opacity = 0.8;
+                _feedbackForm.TopMost = true;
+                
+                _feedbackLabel = new Label();
+                _feedbackLabel.ForeColor = Color.White;
+                _feedbackLabel.Font = new Font("Meiryo UI", targetPixelSize, FontStyle.Bold, GraphicsUnit.Pixel);
+                _feedbackLabel.AutoSize = true;
+                _feedbackLabel.Location = new Point(5, 5);
+                
+                _feedbackForm.Controls.Add(_feedbackLabel);
+
+                // ハンドルを強制的に作成し、初回表示時のカクつきを防止
+                var _ = _feedbackForm.Handle;
+                var __ = _feedbackLabel.Handle;
+            }
         }
 
         private void OnFadeTick(object sender, EventArgs args)
@@ -43,28 +74,12 @@ namespace WindowsFormsApp1.UI
         {
             if (_isDisposed) return;
 
+            InitializeForm();
+
             float targetPixelSize = SystemInformation.CursorSize.Height * 0.6f;
             if (targetPixelSize < 12) targetPixelSize = 12;
 
-            if (_feedbackForm == null || _feedbackForm.IsDisposed)
-            {
-                _feedbackForm = new FeedbackForm();
-                _feedbackForm.FormBorderStyle = FormBorderStyle.None;
-                _feedbackForm.ShowInTaskbar = false;
-                _feedbackForm.StartPosition = FormStartPosition.Manual;
-                _feedbackForm.BackColor = Color.FromArgb(30, 30, 30);
-                _feedbackForm.Opacity = 0.8;
-                _feedbackForm.TopMost = true;
-                
-                _feedbackLabel = new Label();
-                _feedbackLabel.ForeColor = Color.White;
-                _feedbackLabel.Font = new Font("Meiryo UI", targetPixelSize, FontStyle.Bold, GraphicsUnit.Pixel);
-                _feedbackLabel.AutoSize = true;
-                _feedbackLabel.Location = new Point(5, 5);
-                
-                _feedbackForm.Controls.Add(_feedbackLabel);
-            }
-            else
+            if (_feedbackForm != null && !_feedbackForm.IsDisposed)
             {
                 if (Math.Abs(_feedbackLabel.Font.SizeInPoints - (targetPixelSize * 72.0f / _feedbackLabel.DeviceDpi)) > 2.0f && 
                     Math.Abs(_feedbackLabel.Font.Size - targetPixelSize) > 0.5f) 

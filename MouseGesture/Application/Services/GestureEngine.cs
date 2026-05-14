@@ -297,20 +297,13 @@ namespace WindowsFormsApp1
 
             if (map != null && !string.IsNullOrEmpty(map.KeyBinding))
             {
-                try
+                string sendKeys = KeyUtils.ConvertReadableToSendKeys(map.KeyBinding);
+                // フックコールバックスレッドをブロックしないよう非同期実行
+                Task.Run(() =>
                 {
-                    string sendKeys = KeyUtils.ConvertReadableToSendKeys(map.KeyBinding);
-                    
-                    // WPF等の特定アプリケーションではSendKeysがフォーカスを失うと動作しないため、
-                    // UIスレッドで実行させるようMainForm側でラップしてもよいが、今回はシンプルに実行する。
-                    // sendKeysの処理はUIスレッドで回した方が良いのでInvokeなどが必要な場合は外部からActionで渡すか、
-                    // ここでSendKeys.SendWaitを行ってもよい。元のコードにならってここではSendKeys.Send(SendWait推奨？)を使う
-                    SendKeys.SendWait(sendKeys);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error sending keys: {ex.Message}");
-                }
+                    try { SendKeys.SendWait(sendKeys); }
+                    catch (Exception ex) { Console.WriteLine($"Error sending keys: {ex.Message}"); }
+                });
             }
         }
 

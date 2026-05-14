@@ -14,9 +14,34 @@ namespace WindowsFormsApp1
             return NativeMethods.GetForegroundWindow();
         }
 
+        private static string _lastProcessPath;
+        private static uint _lastProcessId;
+        private static readonly object _activeProcessLock = new object();
+
         public static string GetActiveProcessPath()
         {
-            return GetProcessPathFromWindowHandle(GetForegroundWindowHandle());
+            IntPtr hWnd = GetForegroundWindowHandle();
+            if (hWnd == IntPtr.Zero) return null;
+            
+            NativeMethods.GetWindowThreadProcessId(hWnd, out uint processId);
+
+            lock (_activeProcessLock)
+            {
+                if (processId == _lastProcessId && processId != 0 && _lastProcessPath != null)
+                {
+                    return _lastProcessPath;
+                }
+            }
+
+            string currentAppPath = GetProcessPath(processId);
+            
+            lock (_activeProcessLock)
+            {
+                _lastProcessId = processId;
+                _lastProcessPath = currentAppPath;
+            }
+            
+            return currentAppPath;
         }
 
         public static string GetProcessPathFromWindowHandle(IntPtr hWnd)

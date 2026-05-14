@@ -246,6 +246,47 @@ namespace WindowsFormsApp1
                 // Select first app if available
                 if (_cmbApps.Items.Count > 0)
                     _cmbApps.SelectedIndex = 0;
+
+                // ウォームアップ & バックグラウンドプロセス追跡 (初回到達時のJITやNative API呼び出しによるフックタイムアウト遅延を完全に排除)
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        // 1. 強制JITコンパイルによる初回フックタイムアウトの防止
+                        Type[] typesToWarmup = { typeof(GestureEngine), typeof(MouseHook), typeof(ProcessUtils), typeof(ProfileManager), typeof(SendKeys) };
+                        foreach (var type in typesToWarmup)
+                        {
+                            foreach (var method in type.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static))
+                            {
+                                if (!method.IsAbstract && !method.IsGenericMethod)
+                                {
+                                    try { System.Runtime.CompilerServices.RuntimeHelpers.PrepareMethod(method.MethodHandle); } catch { }
+                                }
+                            }
+                        }
+
+                        // 2. Overlayウォームアップ（UIスレッドで実行）
+                        this.Invoke((MethodInvoker)delegate
+                        {
+                            _feedbackOverlay?.ShowGesture("TEST", new Point(0, 0));
+                            _feedbackOverlay?.Hide();
+                        });
+
+                        // 3. アクティブウィンドウを常時監視してキャッシュを温め続ける
+                        // (別アプリを開いた直後の初回のプロセス名取得をフックスレッドで行わせないため)
+                        while (!_isClosing)
+                        {
+                            string path = ProcessUtils.GetActiveProcessPath();
+                            if (path != null)
+                            {
+                                _ = _profileManager.IsAppDisabled(path);
+                                _ = _profileManager.FindGestureMap("LR", path); // Profile検索系のJITとキャッシュも温める
+                            }
+                            await Task.Delay(50);
+                        }
+                    }
+                    catch { }
+                });
             } catch (Exception) {
                 // Ignore errors during disposal
             }
