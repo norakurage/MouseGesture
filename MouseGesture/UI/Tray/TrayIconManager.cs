@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -6,6 +7,10 @@ namespace WindowsFormsApp1
 {
     public class TrayIconManager : IDisposable
     {
+        private const string AppName = "MouseGesture";
+        private const string StartupTaskName = @"\MouseGesture";
+        private const string RunRegistryPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+
         private NotifyIcon _notifyIcon;
         private Action _onRestoreRequest;
         private Action _onExitRequest;
@@ -52,46 +57,127 @@ namespace WindowsFormsApp1
 
         public void RegisterAutoStart(bool enable, string executablePath)
         {
+            RegisterAutoStartForExecutable(enable, executablePath);
+        }
+
+        public static void RegisterAutoStartForExecutable(bool enable, string executablePath)
+        {
             try
             {
-                using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true))
+                DeleteRegistryAutoStart();
+
+                if (enable)
                 {
-                    if (enable)
-                    {
-                        key.SetValue("MouseGesture", $"\"{executablePath}\" --autostart");
-                    }
-                    else
-                    {
-                        key.DeleteValue("MouseGesture", false);
-                    }
+                    CreateStartupTask(executablePath);
+                }
+                else
+                {
+                    DeleteStartupTask();
                 }
             }
             catch (Exception ex)
             {
-                throw new ApplicationException($"スタートアップの設定に失敗しました: {ex.Message}", ex);
+                throw new ApplicationException($"スタートアップの設定に失敗しました。管理者権限で起動してから再度お試しください: {ex.Message}", ex);
             }
         }
 
         public bool GetAutoStartStatus(string executablePath)
         {
+            return GetAutoStartStatusForExecutable(executablePath);
+        }
+
+        public static bool GetAutoStartStatusForExecutable(string executablePath)
+        {
+            return StartupTaskExists() || RegistryAutoStartExists(executablePath);
+        }
+
+        private static void CreateStartupTask(string executablePath)
+        {
+            string taskCommand = $"\"{executablePath}\" --autostart";
+
+            RunSchtasks(
+                "/Create",
+                "/TN", StartupTaskName,
+                "/SC", "ONLOGON",
+                "/TR", taskCommand,
+                "/RL", "HIGHEST",
+                "/F");
+        }
+
+        private static void DeleteStartupTask()
+        {
+            if (!StartupTaskExists()) return;
+
+            RunSchtasks("/Delete", "/TN", StartupTaskName, "/F");
+        }
+
+        private static bool StartupTaskExists()
+        {
+            return RunSchtasks(false, "/Query", "/TN", StartupTaskName) == 0;
+        }
+
+        private static void RunSchtasks(params string[] arguments)
+        {
+            int exitCode = RunSchtasks(true, arguments);
+            if (exitCode != 0)
+            {
+                throw new InvalidOperationException($"schtasks.exe failed with exit code {exitCode}.");
+            }
+        }
+
+        private static int RunSchtasks(bool throwOnStartFailure, params string[] arguments)
+        {
             try
             {
-                using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", false))
+                using (var process = new Process())
                 {
-                    if (key != null)
+                    process.StartInfo.FileName = "schtasks.exe";
+                    process.StartInfo.UseShellExecute = false;
+                    process.StartInfo.CreateNoWindow = true;
+                    foreach (string argument in arguments)
                     {
-                        object value = key.GetValue("MouseGesture");
-                        if (value != null)
-                        {
-                            string expectedPath = $"\"{executablePath}\"";
-                            string valStr = value.ToString();
-                            return valStr.StartsWith(expectedPath, StringComparison.OrdinalIgnoreCase) || valStr.StartsWith(executablePath, StringComparison.OrdinalIgnoreCase);
-                        }
+                        process.StartInfo.ArgumentList.Add(argument);
                     }
+
+                    process.Start();
+                    process.WaitForExit();
+                    return process.ExitCode;
                 }
             }
-            catch { }
-            return false;
+            catch
+            {
+                if (throwOnStartFailure) throw;
+                return -1;
+            }
+        }
+
+        private static void DeleteRegistryAutoStart()
+        {
+            using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath, true))
+            {
+                key?.DeleteValue(AppName, false);
+            }
+        }
+
+        private static bool RegistryAutoStartExists(string executablePath)
+        {
+            try
+            {
+                using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunRegistryPath, false))
+                {
+                    object value = key?.GetValue(AppName);
+                    if (value == null) return false;
+
+                    string expectedPath = $"\"{executablePath}\"";
+                    string valueText = value.ToString();
+                    return valueText.StartsWith(expectedPath, StringComparison.OrdinalIgnoreCase)
+                        || valueText.StartsWith(executablePath, StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public void HideTrayIcon()

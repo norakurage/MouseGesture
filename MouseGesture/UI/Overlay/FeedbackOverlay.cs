@@ -6,6 +6,9 @@ namespace WindowsFormsApp1.UI
 {
     public class FeedbackOverlay : IDisposable
     {
+        private const int CursorOffset = 20;
+        private const int ScreenEdgePadding = 4;
+
         private Form _feedbackForm;
         private Label _feedbackLabel;
         private Timer _feedbackFadeTimer;
@@ -104,7 +107,7 @@ namespace WindowsFormsApp1.UI
 
             _feedbackLabel.Text = displayText;
             _feedbackForm.Size = new Size(_feedbackLabel.PreferredWidth + 10, _feedbackLabel.PreferredHeight + 10);
-            _feedbackForm.Location = new Point(location.X + 20, location.Y + 20);
+            _feedbackForm.Location = GetOverlayLocation(location, _feedbackForm.Size);
 
             if (!_feedbackForm.Visible)
             {
@@ -133,6 +136,30 @@ namespace WindowsFormsApp1.UI
                     _feedbackFadeTimer.Start();
                 }
             }
+        }
+
+        private static Point GetOverlayLocation(Point cursorLocation, Size overlaySize)
+        {
+            var screen = Screen.FromPoint(cursorLocation);
+            var workingArea = screen.WorkingArea;
+
+            int x = cursorLocation.X + CursorOffset;
+            int y = cursorLocation.Y + CursorOffset;
+
+            if (x + overlaySize.Width > workingArea.Right - ScreenEdgePadding)
+            {
+                x = cursorLocation.X - overlaySize.Width - CursorOffset;
+            }
+
+            if (y + overlaySize.Height > workingArea.Bottom - ScreenEdgePadding)
+            {
+                y = cursorLocation.Y - overlaySize.Height - CursorOffset;
+            }
+
+            x = Math.Max(workingArea.Left + ScreenEdgePadding, Math.Min(x, workingArea.Right - overlaySize.Width - ScreenEdgePadding));
+            y = Math.Max(workingArea.Top + ScreenEdgePadding, Math.Min(y, workingArea.Bottom - overlaySize.Height - ScreenEdgePadding));
+
+            return new Point(x, y);
         }
 
         public void Dispose()

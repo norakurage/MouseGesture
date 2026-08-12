@@ -43,6 +43,7 @@ namespace WindowsFormsApp1
                 if (createdNew)
                 {
                     // 1つ目のインスタンス
+                    Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
                     Application.EnableVisualStyles();
                     Application.SetCompatibleTextRenderingDefault(false);
                     Application.Run(new Form1(args));

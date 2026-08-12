@@ -38,21 +38,50 @@ namespace WindowsFormsApp1
             _chkAutoStart.ForeColor = Color.White;
             _chkAutoStart.Location = new Point(10, 10);
             _chkAutoStart.AutoSize = true;
-            _chkAutoStart.Checked = _profileManager.AutoStart;
+            bool suppressAutoStartChanged = false;
+            bool autoStartEnabled = _profileManager.AutoStart || TrayIconManager.GetAutoStartStatusForExecutable(Application.ExecutablePath);
+            if (autoStartEnabled)
+            {
+                try
+                {
+                    TrayIconManager.RegisterAutoStartForExecutable(true, Application.ExecutablePath);
+                }
+                catch (Exception ex)
+                {
+                    autoStartEnabled = TrayIconManager.GetAutoStartStatusForExecutable(Application.ExecutablePath);
+                    MessageBox.Show(ex.Message, "スタートアップ設定エラー", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
 
-            // 同期処理: アプリ起動時にJSON設定とレジストリの一致を保証する
-            var tempManager = new TrayIconManager(null, "", null, null);
-            tempManager.RegisterAutoStart(_chkAutoStart.Checked, Application.ExecutablePath);
-            tempManager.Dispose();
+            _chkAutoStart.Checked = autoStartEnabled;
+            if (_profileManager.AutoStart != _chkAutoStart.Checked)
+            {
+                _profileManager.AutoStart = _chkAutoStart.Checked;
+                _profileManager.SaveGestures();
+            }
 
             _chkAutoStart.CheckedChanged += (s, e) =>
             {
-                if (_profileManager != null)
+                if (suppressAutoStartChanged) return;
+
+                bool requested = _chkAutoStart.Checked;
+                try
                 {
-                    _profileManager.AutoStart = _chkAutoStart.Checked;
-                    _profileManager.SaveGestures();
+                    TrayIconManager.RegisterAutoStartForExecutable(requested, Application.ExecutablePath);
+
+                    if (_profileManager != null)
+                    {
+                        _profileManager.AutoStart = requested;
+                        _profileManager.SaveGestures();
+                    }
                 }
-                _trayIconManager?.RegisterAutoStart(_chkAutoStart.Checked, Application.ExecutablePath);
+                catch (Exception ex)
+                {
+                    suppressAutoStartChanged = true;
+                    _chkAutoStart.Checked = !requested;
+                    suppressAutoStartChanged = false;
+                    MessageBox.Show(ex.Message, "スタートアップ設定エラー", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
             };
             
             panelGlobalTop.Controls.Add(_chkAutoStart);
