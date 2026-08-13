@@ -272,17 +272,19 @@ namespace WindowsFormsApp1
                             _feedbackOverlay?.Hide();
                         });
 
-                        // 3. アクティブウィンドウを常時監視してキャッシュを温め続ける
+                        // 3. アクティブウィンドウのキャッシュを軽く温め続ける
                         // (別アプリを開いた直後の初回のプロセス名取得をフックスレッドで行わせないため)
+                        string lastPath = null;
                         while (!_isClosing)
                         {
                             string path = ProcessUtils.GetActiveProcessPath();
-                            if (path != null)
+                            if (path != null && !string.Equals(path, lastPath, StringComparison.OrdinalIgnoreCase))
                             {
                                 _ = _profileManager.IsAppDisabled(path);
                                 _ = _profileManager.FindGestureMap("LR", path); // Profile検索系のJITとキャッシュも温める
+                                lastPath = path;
                             }
-                            await Task.Delay(50);
+                            await Task.Delay(250);
                         }
                     }
                     catch { }

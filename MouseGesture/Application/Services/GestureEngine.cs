@@ -23,6 +23,7 @@ namespace WindowsFormsApp1
         private const int FEEDBACK_UPDATE_INTERVAL_MS = 7; // 7ms = 144fps
 
         private IntPtr _targetWindowHandle = IntPtr.Zero;
+        private string _targetAppPath = null;
 
         // MainFormとの連携用コールバック（フィードバックUIなどの更新）
         public Action<string, Point> OnUpdateFeedback { get; set; }
@@ -59,13 +60,15 @@ namespace WindowsFormsApp1
 
         private void OnRightButtonDown(object sender, MouseHookEventArgs e)
         {
-            string currentAppPath = ProcessUtils.GetActiveProcessPath();
-            if (_profileManager.IsAppDisabled(currentAppPath))
+            _targetWindowHandle = ProcessUtils.GetForegroundWindowHandle();
+            _targetAppPath = ProcessUtils.GetProcessPathFromWindowHandle(_targetWindowHandle);
+
+            if (_profileManager.IsAppDisabled(_targetAppPath))
             {
+                _targetWindowHandle = IntPtr.Zero;
+                _targetAppPath = null;
                 return;
             }
-
-            _targetWindowHandle = ProcessUtils.GetForegroundWindowHandle();
 
             _isRightButtonDown = true;
             _gestureExecuted = false;
@@ -116,12 +119,15 @@ namespace WindowsFormsApp1
             }
             else if (!string.IsNullOrEmpty(finalGesture))
             {
-                ExecuteGesture(finalGesture, currentAppPath: ProcessUtils.GetActiveProcessPath());
+                ExecuteGesture(finalGesture, currentAppPath: _targetAppPath);
             }
             else
             {
                 SendRightClick(e.Point);
             }
+
+            _targetWindowHandle = IntPtr.Zero;
+            _targetAppPath = null;
         }
 
         private void SendRightClick(MousePoint p)
@@ -230,10 +236,10 @@ namespace WindowsFormsApp1
 
                 if (IsRecordingGesture?.Invoke() == true || IsListeningForKey?.Invoke() == true) return;
 
-                var map = _profileManager.FindGestureMap(currentGesture, ProcessUtils.GetActiveProcessPath());
+                var map = _profileManager.FindGestureMap(currentGesture, _targetAppPath);
                 if (map != null)
                 {
-                    ExecuteGesture(currentGesture, ProcessUtils.GetActiveProcessPath());
+                    ExecuteGesture(currentGesture, _targetAppPath);
                     _gestureExecuted = true;
                     _gestureDirections.Clear();
                     
@@ -278,11 +284,11 @@ namespace WindowsFormsApp1
 
             if (IsRecordingGesture?.Invoke() == true || IsListeningForKey?.Invoke() == true) return;
 
-            GestureMap map = _profileManager.FindGestureMap(currentGesture, ProcessUtils.GetActiveProcessPath());
+            GestureMap map = _profileManager.FindGestureMap(currentGesture, _targetAppPath);
 
             if (map != null)
             {
-                ExecuteGesture(currentGesture, ProcessUtils.GetActiveProcessPath());
+                ExecuteGesture(currentGesture, _targetAppPath);
                 _gestureExecuted = true;
                 _gestureDirections.Clear();
                 _startPoint = e.Point;
