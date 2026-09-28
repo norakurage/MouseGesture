@@ -1,6 +1,10 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
+using System.Security;
+using System.Security.Principal;
+using System.Text;
 using System.Windows.Forms;
 
 namespace WindowsFormsApp1
@@ -93,15 +97,87 @@ namespace WindowsFormsApp1
 
         private static void CreateStartupTask(string executablePath)
         {
-            string taskCommand = $"\"{executablePath}\" --autostart";
+            if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath))
+            {
+                throw new FileNotFoundException("自動起動に登録する実行ファイルが見つかりません。", executablePath);
+            }
 
-            RunSchtasks(
-                "/Create",
-                "/TN", StartupTaskName,
-                "/SC", "ONLOGON",
-                "/TR", taskCommand,
-                "/RL", "HIGHEST",
-                "/F");
+            string taskFilePath = Path.Combine(Path.GetTempPath(), $"MouseGesture-{Guid.NewGuid():N}.xml");
+            try
+            {
+                File.WriteAllText(taskFilePath, CreateStartupTaskXml(executablePath), new UnicodeEncoding(false, true));
+                RunSchtasks("/Create", "/TN", StartupTaskName, "/XML", taskFilePath, "/F");
+            }
+            finally
+            {
+                try
+                {
+                    File.Delete(taskFilePath);
+                }
+                catch
+                {
+                    // 登録後の一時ファイル削除失敗は、自動起動設定の成否に影響させない。
+                }
+            }
+        }
+
+        private static string CreateStartupTaskXml(string executablePath)
+        {
+            string userSid = WindowsIdentity.GetCurrent().User?.Value;
+            if (string.IsNullOrWhiteSpace(userSid))
+            {
+                throw new InvalidOperationException("現在のユーザーを取得できませんでした。");
+            }
+
+            string escapedSid = SecurityElement.Escape(userSid);
+            string escapedPath = SecurityElement.Escape(Path.GetFullPath(executablePath));
+            string escapedWorkingDirectory = SecurityElement.Escape(Path.GetDirectoryName(Path.GetFullPath(executablePath)));
+
+            return $@"<?xml version=""1.0"" encoding=""UTF-16""?>
+<Task version=""1.4"" xmlns=""http://schemas.microsoft.com/windows/2004/02/mit/task"">
+  <RegistrationInfo>
+    <Description>MouseGesture をサインイン時に起動します。</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{escapedSid}</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id=""Author"">
+      <UserId>{escapedSid}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context=""Author"">
+    <Exec>
+      <Command>{escapedPath}</Command>
+      <Arguments>--autostart</Arguments>
+      <WorkingDirectory>{escapedWorkingDirectory}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>";
         }
 
         private static void DeleteStartupTask()
